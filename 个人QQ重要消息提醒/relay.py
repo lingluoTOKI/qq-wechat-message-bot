@@ -348,9 +348,7 @@ class Relay(OpsStore):
 
     async def _analyze_request(self, session, conversations, history=False):
         bigmodel=self.cfg.get('provider')=='bigmodel'
-        payload={'model':self.cfg['model'],'messages':[{'role':'system','content':SYSTEM},{'role':'user','content':json.dumps({'now':datetime.now(TZ).isoformat(timespec='minutes'),'profile':self.cfg['profile'],'conversations':conversations},ensure_ascii=False,separators=(',',':'))}], 'max_tokens':self.cfg['max_output_tokens'],'response_format':{'type':'json_object'},'thinking':{'type':'enabled' if bigmodel else 'disabled'},'temperature':1 if bigmodel else 0}
-        if bigmodel:
-            payload['reasoning_effort']='low'
+        payload={'model':self.cfg['model'],'messages':[{'role':'system','content':SYSTEM},{'role':'user','content':json.dumps({'now':datetime.now(TZ).isoformat(timespec='minutes'),'profile':self.cfg['profile'],'conversations':conversations},ensure_ascii=False,separators=(',',':'))}], 'max_tokens':self.cfg['max_output_tokens'],'response_format':{'type':'json_object'},'thinking':{'type':'disabled'},'temperature':0}
         payload['messages'][0]['content']=ANALYSIS_SYSTEM
         reservation=self.reserve(payload)
         if not reservation:return None
@@ -416,10 +414,15 @@ class Relay(OpsStore):
                     rank=0 if priority else 1 if now-entries[0][2]>=900 else 2 if focused else 4 if self.group_policy(entries[0][1])[0]=='低关注' else 3
                     eligible.append((rank,entries[0][2],group_key,entries))
             groups={};ids={};length=0
+            seen_fp=set();duplicate_keys=[]
             for _,_,group_key,entries in sorted(eligible):
                 if len(groups)>=6:break
                 for key,value,received in entries:
                     if length+len(value['text'])>9000:break
+                    fp=hashlib.sha256(re.sub(r'\s+','',value['text'])[:200].encode()).hexdigest()
+                    if fp in seen_fp and not urgent_candidate(value['text']):
+                        duplicate_keys.append(key);continue
+                    seen_fp.add(fp)
                     length+=len(value['text'])
                     group=groups.setdefault(group_key,{'id':group_key,'platform':value['platform'],'kind':value['kind'],'label':value['label'],'source':value['conversation'],'messages':[]})
                     group['messages'].append({'sender':value['sender'],'text':value['text'],'time':datetime.fromtimestamp(value['time'],TZ).isoformat()})
@@ -467,6 +470,7 @@ class Relay(OpsStore):
                     delivery={'action':'send_private_msg','params':{'user_id':int(self.cfg['target_user']),'message':[{'type':'text','data':{'text':text}}]}}
                     self.db.execute('INSERT OR IGNORE INTO delivery VALUES(?,?,?,?)',(delivery_id,seal(json.dumps(delivery,ensure_ascii=False)),'pending',time.time()));self.db.commit()
                 self.mark_events(ids[group_key],'summarized')
+            if duplicate_keys:self.mark_events(duplicate_keys,'ignored')
             self.last_state='ready'
 
     def mark_events(self, ids, status):
