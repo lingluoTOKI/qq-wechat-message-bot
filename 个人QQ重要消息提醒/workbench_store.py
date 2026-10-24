@@ -83,8 +83,17 @@ class WorkbenchStore:
             p=self.validate_preferences(value.get('preferences'))
             with self.db:self.db.execute("INSERT OR REPLACE INTO workbench_settings VALUES('preferences',?)",(seal(json.dumps(p,ensure_ascii=False)),))
             self.preferences=p;self.apply_preferences();return True
-        if action=='group_settings':
-            if value.get('level') not in LEVELS or value.get('delivery') not in ('重要事项即时','仅每日汇总'):raise web.HTTPBadRequest(text='invalid_group_setting')
+        if action=='batch-tuning':
+            bs=value.get('batch_seconds');qs=value.get('quiet_seconds')
+            if not(isinstance(bs,int) and 30<=bs<=600 and isinstance(qs,int) and 30<=qs<=600):
+                raise web.HTTPBadRequest(text='参数范围30~600秒')
+            self.cfg['batch_seconds']=bs;self.cfg['quiet_seconds']=qs
+            cfg_path=Path(self.root)/'config.json'
+            cfg=json.loads(cfg_path.read_text(encoding='utf-8'))
+            cfg['batch_seconds']=bs;cfg['quiet_seconds']=qs
+            cfg_path.write_text(json.dumps(cfg,ensure_ascii=False,indent=2),encoding='utf-8')
+            return True
+        if action=='group_settings':            if value.get('level') not in LEVELS or value.get('delivery') not in ('重要事项即时','仅每日汇总'):raise web.HTTPBadRequest(text='invalid_group_setting')
             if not self.db.execute('SELECT 1 FROM watched_groups WHERE id=?',(key,)).fetchone():raise web.HTTPNotFound()
             with self.db:self.db.execute('UPDATE watched_groups SET level=?,delivery=?,focused=? WHERE id=?',(value['level'],value['delivery'],int(value['level']=='重点关注'),key))
             return True
