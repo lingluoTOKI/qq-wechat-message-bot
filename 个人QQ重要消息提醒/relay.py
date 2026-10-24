@@ -588,6 +588,12 @@ class Relay(OpsStore):
         data['usage_monitor']=self.token_monitor()
         return web.json_response(data)
 
+    async def token_trend(self,request):
+        rows=self.db.execute("""SELECT date(at,'unixepoch','+8 hours') as day, SUM(tokens)
+            FROM token_ledger WHERE status='measured' AND at>=?
+            GROUP BY day ORDER BY day""",(time.time()-7*86400,)).fetchall()
+        return web.json_response({'days':[{'date':r[0],'tokens':r[1] or 0} for r in rows]})
+
     def status_data(self,day,month,wechat_state):
         measured=self.db.execute("SELECT coalesce(sum(tokens),0) FROM token_ledger WHERE status='measured'").fetchone()[0]
         reserved=self.db.execute("SELECT coalesce(sum(tokens),0) FROM token_ledger WHERE status='reserved'").fetchone()[0]
@@ -771,6 +777,7 @@ class Relay(OpsStore):
 
     async def run(self):
         app=web.Application(client_max_size=32768);app.router.add_get('/status',self.status);app.router.add_post('/wechat',self.wechat)
+        app.router.add_get('/token-trend',self.token_trend)
         app.router.add_get('/history',self.history);app.router.add_post('/history',self.history)
         app.router.add_post('/calibrate',self.calibrate)
         app.router.add_get('/operations',self.operations);app.router.add_post('/operations',self.operations)

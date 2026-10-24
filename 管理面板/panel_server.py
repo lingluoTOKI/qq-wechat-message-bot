@@ -148,7 +148,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     START_STATUS.update(state='starting',message='正在启动并检查本地服务…')
                     threading.Thread(target=start_reminder,daemon=True).start()
                 return self._json(202,dict(START_STATUS))
-            if path not in ('/local/status','/local/history','/local/calibrate','/local/operations','/local/snowluma-log'):
+            if path not in ('/local/status','/local/history','/local/calibrate','/local/operations','/local/snowluma-log','/local/token-trend'):
                 return self._json(404,{'error':'unknown_local_action'})
             if path=='/local/snowluma-log':
                 return self._local_snowluma_log()
