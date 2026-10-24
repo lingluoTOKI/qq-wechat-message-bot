@@ -1,0 +1,9 @@
+secrets.dpapi
+state.sqlite*
+*.log
+*.pid
+__pycache__/
+wechat-cache/
+wechat-state.sqlite*
+wechat-status.json
+wechat-status.tmp

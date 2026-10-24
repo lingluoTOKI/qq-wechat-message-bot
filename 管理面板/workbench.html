@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,"><title>TOKI的工作站</title><link rel="stylesheet" href="/assets/workbench/style.css"><meta name="local-token" content="__LOCAL_REMINDER_TOKEN__"><script src="/assets/workbench/app.js" defer></script><script src="/assets/workbench/unified.js" defer></script><script src="/assets/workbench/workflow-plus.js" defer></script></head>
+<body>
+<aside class="sidebar" id="sidebar">
+  <a class="brand" href="#tasks" aria-label="TOKI的工作站"><span class="brand-mark" aria-hidden="true">T</span><span>TOKI<small>的工作站</small></span></a>
+  <div class="nav-label">个人消息</div><nav id="personalNav" aria-label="个人消息"></nav>
+  <div class="nav-label">机器人管理</div><nav id="botNav" aria-label="机器人管理"></nav>
+  <div class="sidebar-bottom"><button class="nav-item" data-page="settings"><span data-icon="settings"></span>设置</button><button class="local-status" data-page="status"><i class="dot"></i><span>本机状态<small id="sidebarState">正在检查</small></span><span>↗</span></button></div>
+</aside>
+<button class="scrim" id="scrim" aria-label="关闭导航" hidden></button>
+<div class="workspace">
+  <header class="page-header"><button class="icon-button mobile-menu" id="menuToggle" aria-label="打开导航" data-icon="menu"></button><span id="breadcrumb">个人消息</span><span class="header-divider">/</span><strong id="pageName">今日待办</strong><button id="tokenUsageBar" class="token-usage-bar" type="button" data-action="quota" aria-label="查看智谱token用量和校准">智谱用量 · 正在读取…</button><div class="header-actions"><span id="updatedAt">尚未刷新</span><button class="icon-button" id="refresh" aria-label="刷新预览" data-icon="refresh"></button><span class="avatar" title="个人工作台">宸</span></div></header>
+  <div id="alertRegion"></div>
+  <main id="main" tabindex="-1"></main>
+  <footer>本机运行 · 消息有序 <span>私聊通知 · 文件经确认后存群</span></footer>
+</div>
+<dialog id="detailDialog" class="detail-dialog" aria-labelledby="detailTitle"><div id="detailContent"></div></dialog>
+<dialog id="summaryDialog" class="summary-dialog" aria-labelledby="summaryTitle"><form id="summaryForm"><div class="dialog-head"><div><div class="eyebrow">按群回顾</div><h2 id="summaryTitle">总结群历史记录</h2></div><button type="button" class="icon-button close-dialog" aria-label="关闭" data-icon="close"></button></div><p class="muted">整理通知、待办和明确期限。默认复用已有结果，只分析新增内容。</p><div id="summaryGroups" class="group-picker"></div><label class="field">时间范围<select id="summaryRange"><option value="1">最近一天</option><option value="3">最近三天</option><option value="7">最近七天</option></select></label><div class="info-box">每次最多10个群，每群最多50条文字、3000字。QQ旧记录受接口支持限制；微信需电脑客户端登录。使用现有缓存及赠送额度，结果保存在本机。</div><div class="dialog-actions"><button type="button" class="button close-dialog">取消</button><button type="submit" class="button primary">生成所选群摘要 <span>→</span></button></div></form></dialog>
+<div id="toast" role="status" hidden></div>
+</body></html>

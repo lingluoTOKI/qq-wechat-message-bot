@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>BOT CONSOLE · 服务器管理面板</title>
+
+
+<link rel="stylesheet" href="/assets/de-stijl.css">
+</head>
+<body>
+
+<!-- ============ 登录 ============ -->
+<div id="loginView" class="wrap login">
+  <div class="card">
+    <div class="card-title">BOT CONSOLE</div>
+    <div class="card-kicker">服务器管理面板 · 请登录</div>
+    <div class="field">
+      <label for="pwd">面板密码</label>
+      <input id="pwd" type="password" autocomplete="current-password" placeholder="输入面板密码">
+    </div>
+    <div class="err" id="loginErr"></div>
+    <button class="btn" id="loginBtn" style="width:100%">进入面板</button>
+    <a class="btn ghost" href="/?personal=1" style="display:block;margin-top:12px;text-align:center">本地 QQ／微信个人提醒 →</a>
+  </div>
+<figure class="login-art"><img src="/assets/landscape-reference-0.jpeg" alt="青绿山水与江畔楼阁" width="1200" height="800"><figcaption>青绿之间 · 消息有序</figcaption></figure>
+</div>
+
+<!-- ============ 主面板 ============ -->
+<div id="localPersonalView" class="wrap hidden"><header class="topbar"><div class="brand"><h1>BOT CONSOLE</h1><span class="sub">个人消息提醒 · 本机</span></div><a class="btn ghost" href="/">返回大肥鱼管理</a></header><section class="landscape-hero" aria-label="工作台概览"><div class="hero-copy"><span class="hero-kicker">BOT CONSOLE / WORKSPACE</span><h2>个人消息<br>汇总与提醒</h2><p>重要事项及时知晓，<br>有用信息每日归整。</p></div><figure class="hero-image"><img src="/assets/landscape-reference-0.jpeg" alt="绢本青绿山水，群峰间的楼阁与江面" width="1200" height="800"></figure><div class="hero-colors" aria-hidden="true"><span></span><span></span></div></section></div>
+<div id="appView" class="wrap hidden">
+
+  <div class="topwrap">
+  <header class="topbar">
+    <div class="brand">
+      <h1>BOT CONSOLE</h1>
+      <span class="sub">AstrBot × SnowLuma</span>
+    </div>
+    <span class="pill busy" id="connPill" role="status"><span class="dot"></span><span id="connText">连接中</span></span>
+    <div class="actions">
+      <button class="btn ghost" id="refreshBtn" title="立即刷新全部数据与日志">刷新</button>
+      <button class="btn ghost" id="autoBtn" aria-pressed="true" title="每 10 秒自动刷新">自动刷新 ON</button>
+      <button class="btn" id="collapseBtn" title="只保留一行迷你状态条">收起</button>
+      <button class="btn ghost" id="logoutBtn">退出</button>
+    </div>
+  </header>
+  <nav class="subnav" role="tablist" aria-label="面板区块切换">
+    <button class="nav-item" role="tab" data-target="sec-overview" aria-selected="true"><span class="nav-num">00</span>概览</button>
+    <button class="nav-item" role="tab" data-target="sec-services" aria-selected="false"><span class="nav-num">01</span>服务状态</button>
+    <button class="nav-item" role="tab" data-target="sec-entries" aria-selected="false"><span class="nav-num">02</span>控制台入口</button>
+    <button class="nav-item" role="tab" data-target="sec-server" aria-selected="false"><span class="nav-num">03</span>服务器信息</button>
+    <button class="nav-item" role="tab" data-target="sec-bots" aria-selected="false"><span class="nav-num">04</span>机器人信息</button>
+    <button class="nav-item" role="tab" data-target="sec-logs" aria-selected="false"><span class="nav-num">05</span>运行日志</button>
+    <button class="nav-item" role="tab" data-target="personalReminder" aria-selected="false"><span class="nav-num">06</span>个人提醒</button>
+  </nav>
+  </div>
+
+<section class="landscape-hero" aria-label="工作台概览"><div class="hero-copy"><span class="hero-kicker">BOT CONSOLE / WORKSPACE</span><h2>大肥鱼<br>管理工作台</h2><p>机器人运行、个人消息与重要提醒，<br>在这里一览有序。</p></div><figure class="hero-image"><img src="/assets/landscape-reference-0.jpeg" alt="绢本青绿山水，群峰间的楼阁与江面" width="1200" height="800"></figure><div class="hero-colors" aria-hidden="true"><span></span><span></span></div></section>
+  <div class="collapsebar" id="collapseBar">
+    <span class="mini" id="miniStatus">—</span>
+    <span class="rule"></span>
+    <button class="btn" id="expandBtn">展开</button>
+  </div>
+
+  <div id="noticeHost"></div>
+
+  <!-- 概览 -->
+  <section class="section" id="sec-overview">
+    <div class="sec-head">
+      <span class="sec-index" aria-hidden="true">00</span>
+      <h2>概览</h2>
+      <span class="sec-note">服务 · 指标 · 入口 · 最近日志，一页速览</span>
+      <span class="rule"></span>
+    </div>
+    <div class="ov-grid">
+      <div class="ov-block">
+        <div class="ov-head">服务</div>
+        <div class="ov-svc" id="ovSvc"><div class="ov-card">读取中…</div></div>
+      </div>
+      <div class="ov-block">
+        <div class="ov-head">核心指标</div>
+        <div class="ov-metrics" id="ovMetrics"></div>
+        <div class="ov-links">
+          <a class="ov-link" href="http://127.0.0.1:6185" target="_blank" rel="noopener">AstrBot ↗<span class="tag" id="ovTagAstr">…</span></a>
+          <a class="ov-link" href="http://127.0.0.1:5099" target="_blank" rel="noopener">SnowLuma ↗<span class="tag" id="ovTagSnow">…</span></a>
+          <a class="ov-link" href="http://127.0.0.1:6081" target="_blank" rel="noopener">noVNC ↗<span class="tag" id="ovTagVnc">…</span></a>
+        </div>
+      </div>
+    </div>
+    <div class="ov-block ov-logblock">
+      <div class="ov-head">最近日志 · <span id="ovLogSvc">AstrBot</span><span class="rule"></span><a class="ov-more" href="#sec-logs" id="ovLogMore">查看完整日志 →</a></div>
+      <pre class="ov-log" id="ovLog">等待日志…</pre>
+    </div>
+  </section>
+
+  <!-- 服务状态 -->
+  <section class="section" id="sec-services">
+    <div class="sec-head">
+      <span class="sec-index" aria-hidden="true">01</span>
+      <h2>服务运行状态</h2>
+      <span class="sec-note">Docker 容器</span>
+      <span class="sec-note" id="svcSummary">—</span>
+      <span class="rule"></span>
+    </div>
+    <div class="grid g2" id="svcGrid"></div>
+  </section>
+
+  <!-- 入口 -->
+  <section class="section" id="sec-entries">
+    <div class="sec-head">
+      <span class="sec-index" aria-hidden="true">02</span>
+      <h2>控制台入口</h2>
+      <span class="sec-note">全部经由 SSH 隧道转发，仅本机可访问</span>
+      <span class="rule"></span>
+    </div>
+    <div class="grid g3">
+      <a class="card entry" href="http://127.0.0.1:6185" target="_blank" rel="noopener">
+        <span class="arrow">↗</span>
+        <div class="card-title">AstrBot</div>
+        <div class="card-kicker">机器人框架 · 管理后台</div>
+        <div class="desc">配置模型提供商、平台适配器、插件、知识库与人格提示词。</div>
+        <div class="url"><code>127.0.0.1:6185</code><span class="tag" id="tagAstr">检测中</span></div>
+      </a>
+      <a class="card entry" href="http://127.0.0.1:5099" target="_blank" rel="noopener">
+        <span class="arrow">↗</span>
+        <div class="card-title">SnowLuma</div>
+        <div class="card-kicker">QQ 网关 · WebUI</div>
+        <div class="desc">配置 OneBot 反向 WebSocket 客户端、机器人参数与运行策略。</div>
+        <div class="url"><code>127.0.0.1:5099</code><span class="tag" id="tagSnow">检测中</span></div>
+      </a>
+      <a class="card entry" href="http://127.0.0.1:6081" target="_blank" rel="noopener">
+        <span class="arrow">↗</span>
+        <div class="card-title">noVNC</div>
+        <div class="card-kicker">QQ 扫码登录</div>
+        <div class="desc">浏览器里的 Linux 桌面，用手机 QQ 扫码登录小号并确认授权。</div>
+        <div class="url"><code>127.0.0.1:6081</code><span class="tag" id="tagVnc">检测中</span></div>
+      </a>
+    </div>
+  </section>
+
+  <!-- 服务器信息 -->
+  <section class="section" id="sec-server">
+    <div class="sec-head">
+      <span class="sec-index" aria-hidden="true">03</span>
+      <h2>服务器信息</h2>
+      <span class="sec-note" id="srvStamp">—</span>
+      <span class="rule"></span>
+    </div>
+    <div class="grid g4" id="metricGrid"></div>
+    <div class="card" style="margin-top:20px">
+      <div class="card-title">系统概览</div>
+      <div class="card-kicker">运行时与环境</div>
+      <dl class="kv" id="srvKv"></dl>
+    </div>
+  </section>
+
+  <!-- 机器人信息 -->
+  <section class="section" id="sec-bots">
+    <div class="sec-head">
+      <span class="sec-index" aria-hidden="true">04</span>
+      <h2>机器人信息</h2>
+      <span class="sec-note">已部署实例与账号</span>
+      <span class="rule"></span>
+    </div>
+    <div class="grid g2">
+      <div class="card">
+        <div class="card-title">AstrBot</div>
+        <div class="card-kicker" id="abVer">框架实例</div>
+        <dl class="kv" id="abKv"></dl>
+      </div>
+      <div class="card">
+        <div class="card-title">SnowLuma</div>
+        <div class="card-kicker" id="slVer">QQ 网关实例</div>
+        <dl class="kv" id="slKv"></dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- 日志 -->
+  <section class="section" id="sec-logs">
+    <div class="sec-head">
+      <span class="sec-index" aria-hidden="true">05</span>
+      <h2>运行日志</h2>
+      <span class="sec-note" id="logStamp">—</span>
+      <span class="rule"></span>
+    </div>
+    <div class="logwrap">
+      <div class="logbar">
+        <div class="tabs" role="tablist">
+          <button class="tab" role="tab" data-svc="astrbot" aria-selected="true">AstrBot</button>
+          <button class="tab" role="tab" data-svc="snowluma" aria-selected="false">SnowLuma</button>
+        </div>
+        <input class="logsearch" id="logSearch" placeholder="过滤日志关键词…" autocomplete="off">
+        <button class="btn ghost" id="logFollow" aria-pressed="true" title="有新日志时自动滚到底部；关闭后可停留翻看历史">跟随滚动 ON</button>
+        <button class="btn ghost" id="logReload" title="立即拉取最新日志">拉取</button>
+        <button class="btn ghost" id="logCopy" title="复制当前显示的日志">复制</button>
+        <button class="btn ghost" id="logClear" title="清空当前视图（不影响服务端日志）">清屏</button>
+        <span class="logfilters" id="logFilters">
+          <button class="lvlchip active" data-lvl="err" title="错误">ERR</button>
+          <button class="lvlchip active" data-lvl="warn" title="警告">WARN</button>
+          <button class="lvlchip active" data-lvl="info" title="信息">INFO</button>
+          <button class="lvlchip active" data-lvl="dbg" title="调试">DBG</button>
+        </span>
+      </div>
+      <div id="log" class="logbox" tabindex="0">等待日志…</div>
+    </div>
+  </section>
+
+  <!-- 个人提醒 -->
+  <section class="section" id="personalReminder">
+    <div class="sec-head"><span class="sec-index" aria-hidden="true">06</span><h2>个人 QQ／微信提醒</h2><span class="sec-note">本机运行 · 与大肥鱼独立预算</span><span class="rule"></span></div>
+    <div class="card">
+      <div class="personal-overview">
+      <div class="card-title" id="personalStatus">正在读取本地状态…</div>
+      <details class="personal-management" id="personalManagement"><summary>管理 · 启动与额度</summary>
+      <div class="personal-metrics">
+        <div class="personal-stat"><small>待处理消息</small><strong id="personalQueue">—</strong><span>自动分批筛选</span></div>
+        <div class="personal-stat"><small>赠送额度 · 本地估算剩余</small><strong id="personalTokens">—</strong><span>token · 基准总额 1500 万</span></div>
+      </div>
+      <p class="desc" id="personalDetail"></p>
+      <p class="personal-model">智谱 <strong id="personalModel">—</strong> · 实际余额以平台为准</p>
+      <div class="personal-actions">
+        <button class="btn" id="personalStart">启动本地提醒</button>
+        <button class="btn ghost" id="personalRefresh">刷新状态</button>
+        <a class="btn ghost" href="http://127.0.0.1:5100/" target="_blank" rel="noopener">个人 QQ 登录管理 ↗</a>
+      </div>
+      <p class="desc" id="personalStartMessage" role="status"></p>
+      <p class="personal-note">重要事项即时提醒 · 每天21:00汇总 · 电脑需保持运行、微信保持登录</p>
+      <details class="token-details"><summary>用量明细与余额校准</summary>
+        <p id="personalUsage"></p>
+        <p>以你提供的平台剩余额度为基准，减去后续接口实际用量和未结算预留。其他程序调用、平台结算延迟及到期会造成差异。</p>
+        <a href="https://bigmodel.cn/finance-center/resource-package/package-mgmt" target="_blank" rel="noopener">查看智谱资源包 →</a>
+        <div class="calibrate-controls"><label for="giftRemaining">平台当前剩余 token</label><input id="giftRemaining" type="number" min="0" max="15000000" step="1" placeholder="填入平台显示的余额"><button class="btn ghost" id="calibrateGift">校准余额</button></div>
+        <p id="calibrateMessage" role="status"></p>
+      </details>
+      </details>
+      </div>
+      <nav class="personal-subnav" aria-label="个人提醒功能">
+        <button class="btn" data-personal-tab="matters" aria-pressed="true">待办工作台</button>
+        <button class="btn ghost" data-personal-tab="history" aria-pressed="false">回顾摘要</button>
+        <button class="btn ghost" data-personal-tab="issues" aria-pressed="false">运行异常 <span id="issueCount"></span></button>
+      </nav>
+      <div class="history-area ops-area" id="mattersPane">
+        <div class="history-heading"><div class="card-title">待处理事项</div><span class="soft-label">只关注需要你行动的事</span></div>
+        <details class="matter-help"><summary>保存与查看说明</summary><p>事项加密保留30天，最多展示100条。完成或已阅仅改变此处状态，不修改QQ／微信原消息。</p></details>
+        <div class="personal-actions"><select id="matterSource" aria-label="事项来源"><option value="all">全部来源</option><option value="qq">QQ</option><option value="wechat">微信</option></select><label><input type="checkbox" id="showDoneMatters"> 显示已处理／已阅</label><button class="btn ghost" id="refreshMatters">刷新要事</button></div>
+        <p class="desc" id="opsMessage" role="status"></p>
+        <details class="focus-settings"><summary>重点关注群聊 <span id="focusCount"></span></summary>
+        <p class="desc">优先分析所选群聊，其他群仍正常监听。关注不等于紧急，不会把群内闲聊自动转发给你。</p>
+        <input id="focusSearch" type="search" placeholder="搜索群名或群号" aria-label="搜索关注群聊">
+        <div id="focusGroups"></div><p id="focusMessage" role="status"></p>
+        <small>仅列出本程序已接收到消息的群；新群收到消息后自动出现。设置保存在本机。</small></details>
+        <div id="matterList" class="matter-list">正在读取保存事项…</div>
+      </div>
+      <div class="history-area hidden" id="historyPane">
+      <div class="history-heading"><div class="card-title">消息摘要</div><span class="soft-label">QQ · 微信</span></div>
+      <p class="desc">QQ／微信共用监听分析流程与赠送额度。历史摘要按需生成：每个来源最多10个会话、各50条。QQ回顾已接收消息，并尝试读取已知会话旧记录；本地保留7天、最多5000条，非完整历史。结果仅在本页展示。每日21:00按来源分别私聊汇报。</p>
+      <div class="history-controls">
+        <select id="historySource" aria-label="摘要来源"><option value="all">全部</option><option value="qq">QQ</option><option value="wechat">微信</option></select>
+        <select id="historyDays" aria-label="历史摘要时间范围"><option value="1">最近一天</option><option value="3">最近三天</option><option value="7">最近七天</option></select>
+        <button class="btn" id="personalHistory">生成历史摘要</button>
+        <button class="btn secondary" id="cancelHistory" hidden>停止生成</button>
+        <button class="btn secondary" id="exportHistory">导出文本</button>
+      </div>
+      <p class="desc">相同内容优先复用缓存；新增内容按上下文增量分析，缓存加密保留7天、最多2000份。摘要自动加密保存30天，最多30份；QQ原始回顾保留7天、最多5000条，过期每小时清理。导出的文本由你自行保管。</p>
+      <label class="desc">已保存摘要 <select id="savedHistory" aria-label="已保存摘要"><option value="">当前摘要</option></select></label>
+      <p class="desc" id="personalMessage" role="status"></p>
+      <pre id="personalHistoryResult" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:420px;overflow:auto"></pre>
+      <details><summary>查看实际扫描范围与筛选原因</summary><pre id="historyReviewDetails" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto"></pre></details>
+      </div>
+      <div class="history-area ops-area hidden" id="issuesPane">
+        <div class="history-heading"><div class="card-title">运行异常</div><span class="soft-label">仅异常时需要处理</span></div>
+        <p class="desc">分析失败可重试；送达未确认请先查看QQ，再决定补发，避免重复提醒。待核实token不代表实际已消耗，请用平台余额校准，系统不会自行抹去。</p>
+        <div id="issueList" class="matter-list">正在读取…</div>
+        <details><summary>查看本机SnowLuma日志</summary>
+      <div class="history-area" style="margin-top:24px;display:block">
+        <div class="history-heading"><div class="card-title">本地 SnowLuma 日志</div><span class="soft-label" id="slLogStamp">本机运行</span></div>
+        <p class="desc">读取本机 SnowLuma 运行日志（默认今天），<b>不经过服务器</b>。仅作查看，不用于控制。若服务器面板里「运行日志 → SnowLuma」显示的是服务器容器（已崩），与此处本机日志不是同一份。</p>
+        <div class="logbar" style="margin-bottom:8px;flex-wrap:wrap">
+          <button class="btn ghost" id="slLogReload" title="立即拉取最新本地日志">拉取</button>
+          <button class="btn ghost" id="slLogCopy" title="复制显示的日志">复制</button>
+          <button class="btn ghost" id="slLogFollow" aria-pressed="true" title="有新日志时自动滚到底部">跟随滚动 ON</button>
+          <span class="logfilters" id="slLogFilters">
+            <button class="lvlchip active" data-lvl="err">ERR</button>
+            <button class="lvlchip active" data-lvl="warn">WARN</button>
+            <button class="lvlchip active" data-lvl="info">INFO</button>
+            <button class="lvlchip active" data-lvl="dbg">DBG</button>
+          </span>
+          <span class="soft-label" id="slLogFile" style="margin-left:6px"></span>
+        </div>
+        <div id="slLog" class="logbox" style="max-height:340px">等待本地日志…</div>
+      </div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span id="footLeft">BOT CONSOLE · 服务器管理面板</span>
+    <span id="footRight">—</span>
+  </footer>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+var API = "";           // 同源代理
+var csrf = "";
+var autoTimer = null;
+var curSvc = "astrbot";
+var lastLog = "";
+var collapsed = false;
+var followLog = true;
+
+/* ---------- 工具 ---------- */
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function bytes(n){
+  if(n==null) return "—";
+  var u=["B","KB","MB","GB","TB"], i=0, v=Number(n);
+  while(v>=1024 && i<u.length-1){ v/=1024; i++; }
+  return (i===0? v : v.toFixed(1))+" "+u[i];
+}
+function dur(sec){
+  if(!sec && sec!==0) return "—";
+  var d=Math.floor(sec/86400), h=Math.floor(sec%86400/3600), m=Math.floor(sec%3600/60), s=sec%60;
+  if(d>0) return d+"天 "+h+"小时";
+  if(h>0) return h+"小时 "+m+"分";
+  if(m>0) return m+"分 "+s+"秒";
+  return s+"秒";
+}
+function when(iso){
+  if(!iso) return "—";
+  var t=new Date(iso);
+  if(isNaN(t)) return String(iso).replace("T"," ").slice(0,19);
+  var p=function(n){return n<10?"0"+n:""+n;};
+  return t.getFullYear()+"-"+p(t.getMonth()+1)+"-"+p(t.getDate())+" "+p(t.getHours())+":"+p(t.getMinutes());
+}
+function cls(p){ return "bar" + (p>=85?" warn":(p>=65?" mid":"")); }
+function setTag(el, ok, okText, badText){
+  el.textContent = ok? okText : badText;
+  el.className = "tag " + (ok? "on":"off");
+}
+
+/* ---------- 请求 ---------- */
+function req(path, opts){
+  opts = opts||{};
+  var h = {"Accept":"application/json"};
+  if(opts.body) h["Content-Type"]="application/json";
+  if(csrf && (opts.method||"GET")!=="GET") h["X-CSRF-Token"]=csrf;
+  return fetch(API+path, {
+    method: opts.method||"GET",
+    headers:h,
+    credentials:"same-origin",
+    body: opts.body? JSON.stringify(opts.body):undefined
+  }).then(function(r){
+    if(r.status===401) throw {auth:true, status:401};
+    return r.json().catch(function(){ return {}; });
+  });
+}
+
+/* ---------- 登录 ---------- */
+function doLogin(){
+  var pwd = $("pwd").value.trim();
+  var err = $("loginErr");
+  err.textContent = "";
+  if(!pwd){ err.textContent = "请输入面板密码"; return; }
+  $("loginBtn").disabled = true;
+  $("loginBtn").textContent = "验证中…";
+  fetch(API+"/api/login",{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    credentials:"same-origin", body: JSON.stringify({password:pwd})
+  }).then(function(r){ return r.json().then(function(j){ return {s:r.status, j:j}; }); })
+  .then(function(res){
+    if(res.s===200 && res.j.ok){
+      csrf = res.j.csrf || "";
+      sessionStorage.setItem("bot_csrf", csrf);
+      $("loginView").classList.add("hidden");
+      $("appView").classList.remove("hidden");
+      initSection();
+      startAuto(); refreshAll(); loadLogs(true);
+    }else{
+      err.textContent = res.j.message || "登录失败";
+      $("loginBtn").disabled = false;
+      $("loginBtn").textContent = "进入面板";
+    }
+  }).catch(function(){
+    err.textContent = "无法连接到面板服务（本地转发器？）";
+    $("loginBtn").disabled = false;
+    $("loginBtn").textContent = "进入面板";
+  });
+}
+
+/* ---------- 渲染 ---------- */
+function renderNotices(d){
+  var host = $("noticeHost"); host.innerHTML = "";
+  var bots = d.bots||{}, ab = bots.astrbot||{}, sl = bots.snowluma||{};
+  var items = [];
+
+  var slLog = sl.qq && sl.qq.loginState;
+  if(slLog && slLog!=="online"){
+    items.push({warn:true, icon:"◎", html:"<b>QQ 尚未登录。</b>打开 noVNC（127.0.0.1:6081）用手机 QQ 扫码登录小号。SnowLuma 日志显示 <code>"+esc(slLog)+"</code>。"});
+  }else if(slLog==="online"){
+    items.push({warn:false, icon:"✓", html:"<b>QQ 已登录。</b>账号 "+esc((sl.qq&&sl.qq.uin)||"未知")+"。"});
+  }
+  if(ab.available && (ab.providerCount||0)===0){
+    items.push({warn:true, icon:"!", html:"<b>未配置模型提供商。</b>打开 AstrBot WebUI（127.0.0.1:6185）添加 API Key 并设为默认模型，否则机器人收到消息不会回复。"});
+  }
+  if(ab.available && (ab.platforms||[]).length===0){
+    items.push({warn:true, icon:"!", html:"<b>未创建平台适配器。</b>在 AstrBot 中创建 OneBot v11 适配器，反向 WS 填 <code>0.0.0.0:6199</code>。"});
+  }
+  if(items.length){
+    var h = "";
+    items.forEach(function(it){
+      h += '<div class="notice'+(it.warn?" warn":"")+'"><span class="n-icon">'+it.icon+'</span><span>'+it.html+"</span></div>";
+    });
+    host.innerHTML = h;
+  }
+}
+
+function renderServices(svc){
+  var g = $("svcGrid"); g.innerHTML = "";
+  var names = {astrbot:"AstrBot", snowluma:"SnowLuma"};
+  var keys = Object.keys(svc||{});
+  var running = keys.filter(function(k){ return svc[k] && svc[k].running; }).length;
+  $("svcSummary").textContent = keys.length ? ("容器 "+keys.length+" · 运行中 "+running) : "暂无数据";
+  if(!keys.length){
+    g.innerHTML = '<div class="card"><div class="card-title">暂无服务数据</div><div class="desc">未能读取 Docker 容器状态，请检查面板后端连接。</div></div>';
+    return;
+  }
+  keys.forEach(function(k){
+    var s = svc[k]||{};
+    var isUp = !!s.running;
+    var ports = (s.ports||[]).map(function(p){
+      return (p.hostIp||"")+":"+(p.hostPort||"")+" → "+(p.container||"").replace("/tcp","");
+    });
+    var h = '<div class="card">';
+    h += '<div class="card-title">'+esc(names[k]||k)+'</div>';
+    h += '<div class="card-kicker">'+esc((s.image||"").split("@")[0]||"镜像未知")+'</div>';
+    h += '<dl class="kv">';
+    h += '<dt>状态</dt><dd class="txt"><span class="tag '+(isUp?"on":"off")+'">'+(isUp?"运行中":"已停止")+'</span></dd>';
+    h += '<dt>启动</dt><dd>'+esc(when(s.startedAt))+'</dd>';
+    h += '<dt>运行时长</dt><dd>'+esc(dur(s.uptimeSec))+'</dd>';
+    h += '<dt>重启次数</dt><dd>'+esc(String(s.restartCount==null?"—":s.restartCount))+'</dd>';
+    h += '<dt>内存</dt><dd>'+esc(bytes(s.memUsage))+'</dd>';
+    h += '<dt>重启策略</dt><dd>'+esc(s.restartPolicy||"—")+'</dd>';
+    h += '<dt>端口</dt><dd>'+esc(ports.length?ports.join(", "):"—")+'</dd>';
+    h += '</dl>';
+    h += '<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">';
+    h += '<button class="btn ghost" data-act="restart" data-svc="'+esc(k)+'">重启</button>';
+    h += '<button class="btn ghost" data-act="'+(isUp?"stop":"start")+'" data-svc="'+esc(k)+'">'+(isUp?"停止":"启动")+'</button>';
+    h += '</div>';
+    h += '</div>';
+    g.innerHTML += h;
+  });
+
+  g.querySelectorAll("button[data-act]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var a = b.getAttribute("data-act"), s = b.getAttribute("data-svc");
+      if(a==="restart" && !confirm("确认重启 "+s+" ？\n重启期间机器人会短暂离线。")) return;
+      b.disabled = true; b.textContent = "执行中…";
+      req("/api/service/"+s+"/"+a, {method:"POST", body:{}}).then(function(res){
+        if(res && res.ok){ b.textContent = "已执行"; setTimeout(function(){ refreshAll(); }, 2500); }
+        else { b.textContent = "失败"; b.disabled=false; alert(res && res.error ? res.error : "操作失败"); }
+      }).catch(function(){ b.textContent="失败"; b.disabled=false; });
+    });
+  });
+}
+
+/* ---------- 概览 ---------- */
+function renderOverview(d){
+  var svc = d.services||{}, names = {astrbot:"AstrBot", snowluma:"SnowLuma"};
+  var keys = Object.keys(svc);
+  var h = "";
+  keys.forEach(function(k){
+    var s = svc[k]||{}, up = !!s.running;
+    h += '<div class="ov-card"><div class="ov-top"><b>'+esc(names[k]||k)+'</b>'
+      + '<span class="tag '+(up?"on":"off")+'">'+(up?"运行中":"已停止")+'</span></div>'
+      + '<div class="ov-meta">运行 '+esc(dur(s.uptimeSec))+' · 内存 '+esc(bytes(s.memUsage))+' · 重启 '+esc(String(s.restartCount==null?"—":s.restartCount))+' 次</div></div>';
+  });
+  $("ovSvc").innerHTML = h || '<div class="ov-card">暂无数据</div>';
+
+  var s2 = d.server||{}, mem = s2.mem||{}, disk = s2.disk||{};
+  var ms = [
+    {l:"CPU", v:(s2.cpuPercent==null?"—":s2.cpuPercent+"%"), p:s2.cpuPercent},
+    {l:"内存", v:(mem.percent==null?"—":mem.percent+"%"), p:mem.percent},
+    {l:"磁盘", v:(disk.percent==null?"—":disk.percent+"%"), p:disk.percent},
+    {l:"运行", v:dur(s2.uptimeSec), p:null}
+  ];
+  var mh = "";
+  ms.forEach(function(m){
+    mh += '<div class="ov-metric"><span class="ov-ml">'+esc(m.l)+'</span><b class="ov-mv">'+esc(m.v)+'</b>'
+      + (m.p!=null ? '<div class="bar'+((m.p>=85)?" warn":(m.p>=65?" mid":""))+'"><i style="width:'+Math.min(100,Math.max(0,m.p))+'%"></i></div>' : '')
+      + '</div>';
+  });
+  $("ovMetrics").innerHTML = mh;
+}
+
+function renderMetrics(s){
+  var g = $("metricGrid"); g.innerHTML = "";
+  var mem = s.mem||{}, disk = s.disk||{};
+  var items = [
+    {l:"CPU 使用率", v:(s.cpuPercent==null?"—":s.cpuPercent+"%"), s:(s.cpuCores||0)+" 核", p:s.cpuPercent},
+    {l:"内存使用", v:bytes(mem.used), s:"共 "+bytes(mem.total)+" · "+bytes(mem.free)+" 可用", p:mem.percent},
+    {l:"磁盘使用", v:bytes(disk.used), s:"共 "+bytes(disk.total)+" · "+bytes(disk.free)+" 可用", p:disk.percent},
+    {l:"运行时间", v:dur(s.uptimeSec), s:"负载 "+((s.load||[]).join(" / ")||"—"), p:null}
+  ];
+  items.forEach(function(m){
+    var h = '<div class="metric"><div class="m-label">'+esc(m.l)+'</div><div class="m-value">'+esc(m.v)+'</div>';
+    h += '<div class="m-sub">'+esc(m.s)+'</div>';
+    if(m.p!=null){ h += '<div class="'+cls(m.p)+'"><i style="width:'+Math.min(100,Math.max(0,m.p))+'%"></i></div>'; }
+    h += '</div>';
+    g.innerHTML += h;
+  });
+
+  var kv = $("srvKv"); kv.innerHTML = "";
+  var rows = [
+    ["主机名", s.hostname], ["公网 IP", s.publicIp], ["操作系统", s.os],
+    ["内核", s.kernel], ["架构", s.arch], ["时区", s.timezone],
+    ["Docker", s.dockerVersion], ["服务器时间", s.time]
+  ];
+  rows.forEach(function(r){
+    kv.innerHTML += "<dt>"+esc(r[0])+"</dt><dd>"+esc(r[1]||"—")+"</dd>";
+  });
+  $("srvStamp").textContent = "更新于 " + (s.time||"—");
+}
+
+function renderBots(bots){
+  var ab = (bots&&bots.astrbot)||{}, sl = (bots&&bots.snowluma)||{};
+  $("abVer").textContent = ab.version ? ("框架 v"+ab.version) : "框架实例";
+
+  var kv = $("abKv"); kv.innerHTML = "";
+  var plats = ab.platforms||[];
+  var platTxt = plats.length ? plats.map(function(p){
+    return p.id+" ("+p.type+")"+(p.enable?"":" [停用]");
+  }).join(", ") : "未创建";
+  var abRows = [
+    ["平台适配器", platTxt, true],
+    ["反向 WS 端口", plats.length ? plats.map(function(p){return p.wsReversePort;}).join(", ") : "—", false],
+    ["管理员账号", (ab.admins||[]).join(", ")||"—", true],
+    ["人格设定", (ab.personaCount||0)+" 个", false],
+    ["模型提供商", (ab.providerCount||0)+" 个", false],
+    ["知识库", (ab.kbNames||[]).length ? (ab.kbNames||[]).join(", ") : "无", true],
+    ["已装插件", (ab.plugins||[]).length ? (ab.plugins||[]).join(", ") : "无", true],
+    ["日志级别", ab.logLevel||"—", false],
+    ["WebUI 端口", ab.dashboardPort||6185, false]
+  ];
+  abRows.forEach(function(r){ kv.innerHTML += "<dt>"+esc(r[0])+"</dt><dd"+(r[2]?' class="txt"':"")+">"+esc(r[1]||"—")+"</dd>"; });
+
+  $("slVer").textContent = sl.screen ? ("QQ 网关 · 屏幕 "+sl.screen) : "QQ 网关实例";
+  var kv2 = $("slKv"); kv2.innerHTML = "";
+  var wsClients = sl.wsClients||[];
+  var wsTxt = wsClients.length ? wsClients.map(function(c){
+    return c.name+" → ws://"+c.host+":"+c.port+(c.path||"/")+(c.enabled?"":" [停用]");
+  }).join(", ") : "未配置";
+  var slRows = [
+    ["QQ 账号", (sl.qq&&sl.qq.uin) || "未登录", true],
+    ["登录状态", ({online:"已登录",offline:"未登录",unknown:"未知"})[sl.qq&&sl.qq.loginState]||"未知", true],
+    ["反向 WS 客户端", wsTxt, true],
+    ["OneBot HTTP", (sl.httpServers||[]).map(function(s){return s.name+":"+s.port;}).join(", ")||"—", false],
+    ["OneBot WS 服务", (sl.wsServers||[]).map(function(s){return s.name+":"+s.port;}).join(", ")||"—", false],
+    ["WebUI 端口", sl.webuiPort||5099, false],
+    ["noVNC 端口", sl.vncPort||6081, false]
+  ];
+  slRows.forEach(function(r){ kv2.innerHTML += "<dt>"+esc(r[0])+"</dt><dd"+(r[2]?' class="txt"':"")+">"+esc(r[1]||"—")+"</dd>"; });
+}
+
+/* ---------- 日志 ---------- */
+var logFilter = {err:true, warn:true, info:true, dbg:true};
+var logRaw = "";
+function logLevel(ln){
+  if(/\b(ERROR|FATAL|CRITICAL|Traceback|error:)\b/i.test(ln)) return "err";
+  if(/\b(WARN|WARNING|warning:)\b/i.test(ln)) return "warn";
+  if(/\b(INFO|OK|SUCCESS|started|connected|running|已连接|启动|连接)\b/i.test(ln)) return "info";
+  return "dbg";
+}
+function renderLogBox(node, text, filter, search, follow, force){
+  if(!text || !text.trim()){ node.textContent = "（暂无日志输出）"; return; }
+  var lines = text.split("\n");
+  var q = search ? search.replace(/[.*+?^${}()|[\]\\]/g,"\\$&") : "";
+  var h = "", shown = 0;
+  for(var i=0;i<lines.length;i++){
+    var ln = lines[i];
+    var lvl = logLevel(ln);
+    if(filter && !filter[lvl]) continue;
+    var m = ln.match(/^(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}|\d{2}:\d{2}:\d{2})(\s+)/);
+    var ts = "", rest = ln;
+    if(m){ ts = m[1]; rest = ln.slice(m[0].length); }
+    var body = esc(rest);
+    if(q){ try{ body = body.replace(new RegExp("("+q+")","gi"),"<mark>$1</mark>"); }catch(e){} }
+    var tsHtml = ts ? '<span class="l-time">'+esc(ts)+'</span>' : "";
+    h += '<div class="logrow lvl-'+lvl+'"><span class="lvl">'+lvl.toUpperCase()+'</span><span class="logtext">'+tsHtml+body+'</span></div>';
+    shown++;
+  }
+  if(!shown) h = '<div class="logrow"><span class="logtext" style="color:var(--muted)">（当前筛选条件下无日志）</span></div>';
+  var nearBottom = (node.scrollHeight - node.scrollTop - node.clientHeight) < 80;
+  node.innerHTML = h;
+  if(force || (follow && nearBottom)) node.scrollTop = node.scrollHeight;
+}
+function paintLog(text, forceScroll){
+  logRaw = text;
+  renderLogBox($("log"), text, logFilter, $("logSearch").value.trim(), followLog, forceScroll);
+  $("logStamp").textContent = "更新于 " + new Date().toLocaleTimeString("zh-CN");
+  var ov = $("ovLog");
+  if(ov){ ov.textContent = text.split("\n").slice(-14).join("\n"); ov.scrollTop = ov.scrollHeight; }
+}
+
+function loadLogs(force){
+  if(curSvc!=="astrbot" && curSvc!=="snowluma") return;
+  req("/api/logs?service="+curSvc+"&lines=200").then(function(res){
+    if(res && res.ok){
+      var t = res.content || "";
+      if(res.fileLog && res.fileLog.length > 40){
+        t = t + "\n\n══════ SnowLuma 文件日志 ══════\n" + res.fileLog;
+      }
+      if(force || t!==logRaw) paintLog(t, force);
+    }
+  }).catch(function(){});
+}
+
+/* ---------- 主刷新 ---------- */
+function refreshAll(){
+  $("connText").textContent = "同步中";
+  $("connPill").className = "pill busy";
+  return req("/api/overview").then(function(d){
+    if(!d || !d.ok){ throw new Error("bad"); }
+    $("connText").textContent = "已连接";
+    $("connPill").className = "pill live";
+    renderServices(d.services);
+    renderMetrics(d.server||{});
+    renderOverview(d);
+    renderBots(d.bots);
+    renderNotices(d);
+    $("footRight").textContent = "公网 IP " + ((d.server&&d.server.publicIp)||"—");
+    $("miniStatus").textContent =
+      "AstrBot " + ((d.services&&d.services.astrbot&&d.services.astrbot.running)?"● 运行中":"○ 停止") +
+      " · SnowLuma " + ((d.services&&d.services.snowluma&&d.services.snowluma.running)?"● 运行中":"○ 停止") +
+      " · CPU " + ((d.server&&d.server.cpuPercent)||0) + "%" +
+      " · 内存 " + (((d.server&&d.server.mem)||{}).percent||0) + "%";
+  }).catch(function(e){
+    if(e && e.auth){ logout(); return; }
+    $("connText").textContent = "连接失败";
+    $("connPill").className = "pill down";
+  });
+}
+
+/* ---------- 入口探活 ---------- */
+function pingTags(){
+  [["tagAstr","astrbot","ovTagAstr"],["tagSnow","snowluma","ovTagSnow"],["tagVnc","novnc","ovTagVnc"]].forEach(function(p){
+    var el = $(p[0]), ov = $(p[2]);
+    fetch(API+"/entry/"+p[1], {cache:"no-store"})
+      .then(function(r){ return r.json(); })
+      .then(function(j){ if(j && j.ok){ setTag(el, j.alive, "可访问", "离线"); if(ov) setTag(ov, j.alive, "可访问", "离线"); } })
+      .catch(function(){ setTag(el, false, "离线", "离线"); if(ov) setTag(ov, false, "离线", "离线"); });
+  });
+}
+
+/* ---------- 区块切换 ---------- */
+var SECTIONS = ["sec-overview","sec-services","sec-entries","sec-server","sec-bots","sec-logs","personalReminder"];
+function showSection(id, silent){
+  if(SECTIONS.indexOf(id)<0) id = "sec-overview";
+  SECTIONS.forEach(function(s){ var el=$(s); if(el) el.classList.toggle("hidden", s!==id); });
+  document.querySelectorAll(".nav-item").forEach(function(b){
+    b.setAttribute("aria-selected", b.getAttribute("data-target")===id ? "true":"false");
+  });
+  try{ localStorage.setItem("bot_section", id); }catch(e){}
+  if(!silent && window.history && history.replaceState) history.replaceState(null,"","#"+id);
+}
+function initSection(){
+  var fromHash = (location.hash||"").replace("#","");
+  var saved = "";
+  try{ saved = localStorage.getItem("bot_section")||""; }catch(e){}
+  showSection(SECTIONS.indexOf(fromHash)>=0 ? fromHash : (SECTIONS.indexOf(saved)>=0 ? saved : "sec-overview"), true);
+}
+
+/* ---------- 自动刷新 ---------- */
+function startAuto(){
+  stopAuto();
+  autoTimer = setInterval(function(){
+    if(document.hidden) return;
+    refreshAll();
+    loadLogs(false);
+    pingTags();
+  }, 10000);
+}
+function stopAuto(){ if(autoTimer){ clearInterval(autoTimer); autoTimer=null; } }
+
+/* ---------- 事件 ---------- */
+function logout(){
+  fetch(API+"/api/logout",{method:"POST",credentials:"same-origin"}).catch(function(){});
+  csrf=""; sessionStorage.removeItem("bot_csrf");
+  stopAuto();
+  $("appView").classList.add("hidden");
+  $("loginView").classList.remove("hidden");
+  $("pwd").value="";
+}
+function setCollapsed(v){
+  collapsed = v;
+  document.body.classList.toggle("collapsed", v);
+  $("collapseBar").classList.toggle("show", v);
+  $("collapseBtn").textContent = v ? "展开" : "收起";
+  $("expandBtn").textContent = v ? "收起" : "展开";
+  try{ localStorage.setItem("bot_collapsed", v?"1":"0"); }catch(e){}
+}
+
+document.addEventListener("DOMContentLoaded", function(){
+  $("loginBtn").addEventListener("click", doLogin);
+  $("pwd").addEventListener("keydown", function(e){ if(e.key==="Enter") doLogin(); });
+
+  $("refreshBtn").addEventListener("click", function(){ refreshAll(); loadLogs(true); pingTags(); });
+  $("autoBtn").addEventListener("click", function(){
+    var on = this.getAttribute("aria-pressed")==="true";
+    this.setAttribute("aria-pressed", on?"false":"true");
+    this.textContent = on ? "自动刷新 OFF" : "自动刷新 ON";
+    if(on) stopAuto(); else startAuto();
+  });
+  $("collapseBtn").addEventListener("click", function(){ setCollapsed(!collapsed); });
+  $("expandBtn").addEventListener("click", function(){ setCollapsed(!collapsed); });
+  $("logoutBtn").addEventListener("click", logout);
+
+  document.querySelectorAll(".nav-item").forEach(function(b){
+    b.addEventListener("click", function(){ showSection(b.getAttribute("data-target")); });
+  });
+
+  document.querySelectorAll(".tab").forEach(function(t){
+    t.addEventListener("click", function(){
+      document.querySelectorAll(".tab").forEach(function(x){ x.setAttribute("aria-selected","false"); });
+      t.setAttribute("aria-selected","true");
+      curSvc = t.getAttribute("data-svc");
+      var ols = $("ovLogSvc"); if(ols) ols.textContent = t.textContent;
+      loadLogs(true);
+    });
+  });
+  var ovMore = $("ovLogMore");
+  if(ovMore) ovMore.addEventListener("click", function(e){ e.preventDefault(); showSection("sec-logs"); });
+  $("logReload").addEventListener("click", function(){ loadLogs(true); });
+  $("logClear").addEventListener("click", function(){ $("log").textContent=""; });
+  $("logSearch").addEventListener("input", function(){ if(logRaw) paintLog(logRaw, true); });
+  $("logFollow").addEventListener("click", function(){
+    followLog = !followLog;
+    this.setAttribute("aria-pressed", followLog?"true":"false");
+    this.textContent = followLog ? "跟随滚动 ON" : "跟随滚动 OFF";
+    if(followLog){ var el=$("log"); el.scrollTop = el.scrollHeight; }
+  });
+  document.querySelectorAll("#logFilters .lvlchip").forEach(function(b){
+    b.addEventListener("click", function(){
+      var lvl = b.getAttribute("data-lvl");
+      logFilter[lvl] = !logFilter[lvl];
+      b.classList.toggle("active", logFilter[lvl]);
+      if(logRaw) paintLog(logRaw, true);
+    });
+  });
+  $("logCopy").addEventListener("click", function(){
+    var t = $("log").innerText || "";
+    if(!t.trim()) return;
+    var btn = this;
+    var done = function(){ btn.textContent="已复制"; setTimeout(function(){ btn.textContent="复制"; },1500); };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(t).then(done).catch(function(){});
+    }else{
+      var ta=document.createElement("textarea"); ta.value=t; document.body.appendChild(ta);
+      ta.select(); try{ document.execCommand("copy"); done(); }catch(e){}
+      document.body.removeChild(ta);
+    }
+  });
+
+  try{ setCollapsed(localStorage.getItem("bot_collapsed")==="1"); }catch(e){}
+
+  // 恢复会话
+  if(new URLSearchParams(location.search).get('personal')==='1')return;
+  fetch(API+"/api/session",{credentials:"same-origin"}).then(function(r){
+    if(r.status===200) return r.json();
+    return null;
+  }).then(function(j){
+    if(j && j.ok && j.csrf){
+      csrf = j.csrf;
+      $("loginView").classList.add("hidden");
+      $("appView").classList.remove("hidden");
+      initSection();
+      startAuto(); refreshAll(); loadLogs(true); pingTags();
+    }else{
+      $("pwd").focus();
+    }
+  }).catch(function(){ $("pwd").focus(); });
+});
+window.renderLogBox = renderLogBox;
+window.logLevel = logLevel;
+})();
+</script>
+<script>
+(function(){
+  const token='__LOCAL_REMINDER_TOKEN__';
+  const el=id=>document.getElementById(id);
+  function bytes(n){
+    if(n==null) return "—";
+    var u=["B","KB","MB","GB","TB"], i=0, v=Number(n);
+    while(v>=1024 && i<u.length-1){ v/=1024; i++; }
+    return (i===0? v : v.toFixed(1))+" "+u[i];
+  }
+  if(new URLSearchParams(location.search).get('personal')==='1'){
+    const style=document.createElement('style');style.textContent='#loginView,#appView{display:none!important}';document.head.append(style);
+    el('localPersonalView').classList.remove('hidden');el('localPersonalView').append(el('personalReminder'));el('personalReminder').classList.remove('hidden');
+  }
+  let timer=null;
+  async function local(path,body){
+    const response=await fetch('/local/'+path,{cache:'no-store',signal:AbortSignal.timeout(10000),method:body?'POST':'GET',headers:body?{'Content-Type':'application/json','X-Local-Token':token}:{},body:body?JSON.stringify(body):undefined});
+    if(!(response.headers.get('Content-Type')||'').includes('application/json'))throw new Error('本地接口返回了网页（HTTP '+response.status+'），请刷新面板后重试。');
+    const value=await response.json();
+    if(!response.ok)throw new Error(value.message||value.error||'请求失败');
+    return value;
+  }
+  async function refresh(){
+    try{const s=await local('status');
+      latestConnection=s;
+      el('personalStatus').textContent='QQ：'+(s.qq_connected?'已连接':'未连接')+' · 微信：'+({listening:'监听中',waiting_queue:'等待分析队列空位',waiting_service:'等待本地服务恢复',connecting:'连接中',disabled:'未启用',stale:'状态过期',not_started:'未启动'}[s.wechat_state]||s.wechat_state||'未知');
+      el('personalQueue').textContent=s.pending_messages;
+      el('personalTokens').textContent=Number(s.token_remaining||0).toLocaleString('zh-CN');
+      el('personalModel').textContent=s.model;
+      el('personalStatus').dataset.state=s.state;
+      el('personalDetail').textContent=s.state==='budget_paused'?(s.budget_reason||'本地 token 保护已暂停分析'):s.state==='queue_full'?'待分析队列已满，微信正在等待空位。':s.state.startsWith('analysis_error:')?'本批分析失败，10分钟后有限重试；其他会话继续处理。':s.state==='processing_error'?'分析暂时异常，程序会重试。':'自动分析中 · 使用赠送 token 用量保护，不再按金额暂停。';
+      el('personalUsage').textContent='实际返回用量 '+Number(s.token_measured||0).toLocaleString('zh-CN')+' token；正在请求预留 '+Number((s.token_reserved||0)-(s.token_unverified||0)).toLocaleString('zh-CN')+'；历史待核实 '+Number(s.token_unverified||0).toLocaleString('zh-CN')+'（不是实际消耗）。校准时间：'+(s.calibrated_at?new Date(s.calibrated_at).toLocaleString('zh-CN'):'尚未校准')+'。';
+    }catch(e){el('personalStatus').textContent='本地提醒未连接';el('personalDetail').textContent=e.message;}
+  }
+  let latestConnection=null,opsValue={matters:[],failures:[],uncertain:[]},opsFetching=false;
+  function setPersonalTab(tab){
+    for(const name of ['matters','history','issues'])el(name+'Pane').classList.toggle('hidden',name!==tab);
+    document.querySelectorAll('[data-personal-tab]').forEach(button=>{const active=button.dataset.personalTab===tab;button.setAttribute('aria-pressed',String(active));button.classList.toggle('ghost',!active);});
+    if(tab==='history')historyStatus();else loadOps();
+  }
+  document.querySelectorAll('[data-personal-tab]').forEach(button=>button.onclick=()=>setPersonalTab(button.dataset.personalTab));
+  function paragraph(parent,text,tag='p'){const node=document.createElement(tag);node.textContent=text;parent.append(node);return node;}
+  function opButton(parent,label,action,id,extra={}){const button=document.createElement('button');button.className='btn ghost';button.textContent=label;button.onclick=async()=>{
+    if(action==='retry_delivery'&&!confirm('请先查看QQ：补发可能重复发送。确认还未收到，并现在补发？'))return;
+    button.disabled=true;try{await local('operations',{action,id,...extra});el('opsMessage').textContent='已更新。';await loadOps();}catch(e){el('opsMessage').textContent=e.message;button.disabled=false;}
+  };parent.append(button);}
+  let referenceExpanded=false;
+  function renderFocus(){
+    const node=el('focusGroups');node.replaceChildren();const query=el('focusSearch').value.trim().toLowerCase();
+    const groups=opsValue.groups||[];el('focusCount').textContent='· 已选 '+groups.filter(g=>g.focused).length;
+    for(const g of groups.filter(g=>(g.label+' '+g.conversation).toLowerCase().includes(query)).sort((a,b)=>Number(b.focused)-Number(a.focused)||a.label.localeCompare(b.label))){
+      const row=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.checked=g.focused;
+      row.append(box,document.createTextNode((g.platform==='qq'?'QQ':'微信')+' · '+g.label));node.append(row);
+      box.onchange=async()=>{box.disabled=true;try{await local('operations',{action:'focus_group',id:g.id,focused:box.checked});g.focused=box.checked;el('focusMessage').textContent='已保存，下批分析生效。';renderFocus();}catch(e){box.checked=g.focused;el('focusMessage').textContent='保存失败，请重试。';}finally{box.disabled=false;}};
+    }
+    if(!node.children.length)paragraph(node,groups.length?'没有匹配的群聊。':'尚未识别到群聊，收到群消息后点击刷新。');
+  }
+  el('focusSearch').oninput=renderFocus;
+  function renderMatters(){
+    const node=el('matterList');node.replaceChildren();const source=el('matterSource').value,showDone=el('showDoneMatters').checked;
+    const rows=(opsValue.matters||[]).filter(v=>(source==='all'||v.platform===source)&&(showDone||!v.done));
+    const actions=rows.filter(v=>v.kind==='action').sort((a,b)=>Number(a.done)-Number(b.done)||Number(b.urgent)-Number(a.urgent));
+    const references=rows.filter(v=>v.kind==='reference');
+    function addRow(parent,value,kind){
+      const card=document.createElement('article');card.className='matter-card matter-row'+(value.done?' is-done':'')+(value.urgent?' is-urgent':'');
+      const content=document.createElement('div');content.className='matter-content';card.append(content);
+      paragraph(content,(value.urgent?'紧急 · ':'')+value.summary).className='matter-summary';
+      const stamp=new Date(value.source_time*1000);
+      paragraph(content,(value.platform==='qq'?'QQ':'微信')+' · '+value.source+' · '+(value.time_approximate?'约 ':'')+(Number.isNaN(stamp.getTime())?'时间未记录':stamp.toLocaleString('zh-CN')),'small');
+      if(value.deadline&&value.deadline!=='未明确')paragraph(content,'期限：'+value.deadline,'small').className='matter-deadline';
+      if(value.action){const detail=document.createElement('details');paragraph(detail,'查看待办详情','summary');paragraph(detail,value.action);content.append(detail);}
+      opButton(card,value.done?'恢复未读':kind==='action'?'完成':'已阅','done',value.id,{done:!value.done});parent.append(card);
+    }
+    if(!actions.length)paragraph(node,'暂无待处理事项。参考信息收在下方，不需要逐条处理。','p').className='ops-empty';
+    else {paragraph(node,'待处理 · '+actions.filter(v=>!v.done).length,'h3').className='matter-group';actions.forEach(v=>addRow(node,v,'action'));}
+    const fold=document.createElement('details');fold.className='reference-fold';fold.open=referenceExpanded;
+    paragraph(fold,'参考信息 · '+references.length+' 条','summary');fold.ontoggle=()=>{referenceExpanded=fold.open;};
+    const list=document.createElement('div');list.className='matter-list';fold.append(list);
+    references.forEach(v=>addRow(list,v,'reference'));
+    if(!references.length)paragraph(list,'暂无参考信息。');node.append(fold);
+  }
+  function renderIssues(){
+    const node=el('issueList');node.replaceChildren();let count=0;
+    function issue(text){count++;const card=document.createElement('article');card.className='matter-card is-urgent';paragraph(card,text);node.append(card);return card;}
+    if(latestConnection&&!latestConnection.qq_connected)issue('QQ尚未连接，私聊通知暂时无法发送，请检查个人QQ登录管理。');
+    if(latestConnection&&!['listening','disabled'].includes(latestConnection.wechat_state))issue('微信监听状态：'+({waiting_queue:'等待队列空位',connecting:'连接中',stale:'状态未更新'}[latestConnection.wechat_state]||latestConnection.wechat_state));
+    if(latestConnection&&(latestConnection.state==='budget_paused'||/error/.test(latestConnection.state)))issue(latestConnection.budget_reason||'分析出现异常，失败记录见下方。');
+    if(opsValue.qq_waiting_recovery)issue('QQ另有 '+opsValue.qq_waiting_recovery+' 条已留存消息正在等待自动补处理。');
+    for(const value of opsValue.failures||[]){const card=issue('分析失败 · '+(value.platform==='qq'?'QQ':'微信')+' · '+value.source+' · '+new Date(value.at*1000).toLocaleString('zh-CN'));opButton(card,'重新分析','retry_analysis',value.id);}
+    for(const value of opsValue.uncertain||[]){const card=issue('私聊送达未确认 · '+new Date(value.at*1000).toLocaleString('zh-CN')+'。请先检查474496195的QQ消息。');opButton(card,'确认已收到','dismiss_delivery',value.id);opButton(card,'确认未收到，补发','retry_delivery',value.id,{confirmed:true});}
+    const usage=opsValue.usage_unverified;
+    if(usage&&usage.requests){const card=issue(usage.requests+' 次旧请求用量待核实，共预留 '+Number(usage.tokens).toLocaleString('zh-CN')+' token；并非已确认消耗。请核对平台余额后校准。');const button=document.createElement('button');button.className='btn ghost';button.textContent='打开余额校准';button.onclick=()=>{el('personalManagement').open=true;el('personalUsage').closest('details').open=true;el('giftRemaining').focus();el('giftRemaining').scrollIntoView({block:'center',behavior:'smooth'});};card.append(button);}
+    if(!count)paragraph(node,'暂无需要处理的异常。','p').className='ops-empty';
+    el('issueCount').textContent=count?'('+count+')':'';
+  }
+  async function loadOps(){if(opsFetching)return;opsFetching=true;try{opsValue=await local('operations');el('opsMessage').textContent='';renderMatters();renderFocus();renderIssues();}catch(e){el('opsMessage').textContent='本地事项刷新失败，以下保留上次结果。请检查本地提醒连接。';}finally{opsFetching=false;}}
+  el('matterSource').onchange=renderMatters;el('showDoneMatters').onchange=renderMatters;el('refreshMatters').onclick=loadOps;
+  let latestHistory={state:'idle',items:[]};
+  function renderHistory(){
+    const value=latestHistory, source=el('historySource').value;
+    const blocks=[];
+    if(source==='all'||source==='qq'){const items=(value.items||[]).filter(item=>item.platform==='qq');blocks.push('【QQ】\n'+(items.map((item,i)=>(i+1)+'. '+item.source+'\n'+item.summary).join('\n\n')||(value.state==='done'?'当前抽样未保留要点，不代表全部QQ聊天没有有用信息。':value.state==='running'?'正在整理QQ记录，有用事项会逐步显示。':'点击生成 QQ 回顾；接入前已清除的消息无法保证恢复。')));}
+    if(source==='all'||source==='wechat'){
+      const items=(value.items||[]).filter(item=>!item.platform||item.platform==='wechat');
+      blocks.push('【微信】\n'+(items.map((item,i)=>(i+1)+'. '+item.source+'\n'+item.summary+(item.deadline&&item.deadline!=='未明确'?'\n时间：'+item.deadline:'')+(item.action?'\n待办：'+item.action:'')).join('\n\n')||(value.state==='done'?'当前抽样未保留要点，不代表全部聊天没有有用信息。':value.state==='running'?'正在整理微信记录，有用事项会逐步显示。':'尚无摘要，点击生成后展示。')));
+    }
+    el('personalHistoryResult').textContent=blocks.join('\n\n');
+    el('historyReviewDetails').textContent='本次实际处理 '+(value.completed||0)+'/'+(value.total||0)+' 个会话，分析文字消息 '+(value.scanned_messages===undefined?'旧报告未记录':value.scanned_messages)+' 条。\n'+(value.reviewed||[]).map(r=>(r.platform==='qq'?'QQ':'微信')+' · '+r.source+' · '+r.messages+'条 · '+(r.retained?'已保留':'未保留')+'：'+r.reason).join('\n');
+    el('personalHistory').disabled=value.state==='running';
+    el('cancelHistory').hidden=value.state!=='running';el('cancelHistory').style.display=value.state==='running'?'':'none';
+    el('exportHistory').disabled=!value.started_at;
+    if(value.state==='running')el('personalHistory').textContent='正在生成…';
+    el('personalHistory').textContent=value.state==='running'?'正在生成…':source==='qq'?'生成QQ摘要':source==='all'?'生成全部摘要':'生成微信摘要';
+  }
+  el('historySource').onchange=renderHistory;
+  let historyFetching=false;
+  async function historyStatus(){
+    if(historyFetching)return;
+    historyFetching=true;clearTimeout(timer);
+    try{const selected=el('savedHistory').value;const value=await local('history'+(selected?'?report='+encodeURIComponent(selected):''));
+      if(value.saved_reports){const select=el('savedHistory');const previous=select.value;select.replaceChildren(new Option('当前摘要',''));for(const report of value.saved_reports)select.add(new Option(new Date(report.at*1000).toLocaleString('zh-CN'),report.id));select.value=previous;}
+      const names={running:'正在读取和整理，可能需要数分钟…',done:'摘要已完成',budget_paused:'已到预算保护线，仅展示已完成部分',error:'读取或分析失败，请检查微信登录与模型服务',interrupted:'上次任务被中断，已恢复保存的部分结果',cancelled:'已停止，保留本次已完成结果',idle:'尚未生成历史摘要'};
+      el('personalMessage').textContent=(value.state==='running'?(value.stage||'准备中')+' · 已处理 '+(value.completed||0)+'/'+(value.total||'待统计')+' 个会话 · 已用 '+Math.max(0,Math.floor((Date.now()/1000)-(value.started_at||Date.now()/1000)))+' 秒':(names[value.state]||value.state))+(value.cache_usage?' · 缓存复用 '+value.cache_usage.hits+' 个会话 · 增量 '+value.cache_usage.incremental+' 个 · 模型请求 '+value.cache_usage.requests+' 次':'')+(value.scope?'。范围：'+value.scope:'')+((value.warnings||[]).length?'。'+[...new Set(value.warnings)].join('；'):'');
+      latestHistory=value;renderHistory();
+      if(value.state==='running'){timer=setTimeout(historyStatus,4000);}else{refresh();}
+    }catch(e){el('personalMessage').textContent='状态暂时无法刷新，正在自动重连；不要重复生成。';timer=setTimeout(historyStatus,4000);}
+    finally{historyFetching=false;}
+  }
+  el('personalRefresh').onclick=async()=>{await refresh();await loadOps();};
+  el('calibrateGift').onclick=async function(){
+    const raw=el('giftRemaining').value;const remaining=Number(raw);
+    if(!raw||!Number.isInteger(remaining)||remaining<0||remaining>15000000){el('calibrateMessage').textContent='请输入0至15000000之间的整数。';return;}
+    this.disabled=true;
+    try{const value=await local('calibrate',{remaining});el('calibrateMessage').textContent=value.message;await refresh();}catch(e){el('calibrateMessage').textContent=e.message;}finally{this.disabled=false;}
+  };
+  el('personalStart').onclick=async function(){this.disabled=true;this.textContent='正在启动…';const message=el('personalStartMessage');message.textContent='正在启动并检查本地服务…';
+    try{await local('start',{});for(let i=0;i<50;i++){await new Promise(resolve=>setTimeout(resolve,2000));const value=await local('start');message.textContent=value.message;if(value.state!=='starting'){await refresh();await loadOps();break;}}}
+    catch(e){message.textContent='启动检查失败：'+e.message;}finally{this.disabled=false;this.textContent='启动本地提醒';}
+  };
+  el('savedHistory').onchange=historyStatus;
+  el('exportHistory').onclick=()=>{const v=latestHistory;const text='消息摘要\n生成时间：'+new Date(v.started_at*1000).toLocaleString('zh-CN')+'\n范围：'+(v.scope||'')+'\n处理会话：'+(v.completed||0)+'/'+(v.total||0)+'\n\n'+el('personalHistoryResult').textContent;const url=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='消息摘要-'+new Date(v.started_at*1000).toISOString().slice(0,10)+'.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+  el('cancelHistory').onclick=async function(){this.disabled=true;try{await local('history',{action:'cancel'});await historyStatus();}catch(e){el('personalMessage').textContent=e.message;}finally{this.disabled=false;}};
+  el('personalHistory').onclick=async function(){el('savedHistory').value='';this.disabled=true;this.textContent='正在提交…';el('personalMessage').textContent='任务正在启动，请稍候…';clearTimeout(timer);try{await local('history',{days:Number(el('historyDays').value),source:el('historySource').value});historyStatus();}catch(e){el('personalMessage').textContent=e.message;renderHistory();}};
+  /* ---------- 本地 SnowLuma 日志 ---------- */
+  let slFollow=true, slLogRaw='', slLogFilter={err:true,warn:true,info:true,dbg:true};
+  function paintSlLog(text, force){
+    slLogRaw=text;
+    window.renderLogBox(el('slLog'), text, slLogFilter, "", slFollow, force);
+    const st=el('slLogStamp');if(st)st.textContent='更新于 '+new Date().toLocaleTimeString('zh-CN');
+  }
+  async function loadSlLog(force){
+    try{
+      const v=await local('snowluma-log');
+      if(v&&v.ok){paintSlLog((v.lines||[]).join('\n'),force);el('slLogFile').textContent=v.file+' · '+bytes(v.size);}
+      else{el('slLog').textContent=v&&v.message?('读取失败：'+v.message):'读取失败';}
+    }catch(e){el('slLog').textContent='读取失败：'+e.message;}
+  }
+  el('slLogReload').onclick=()=>loadSlLog(true);
+  el('slLogFilters').querySelectorAll('.lvlchip').forEach(b=>{
+    b.addEventListener('click',()=>{const lvl=b.getAttribute('data-lvl');slLogFilter[lvl]=!slLogFilter[lvl];b.classList.toggle('active',slLogFilter[lvl]);if(slLogRaw)paintSlLog(slLogRaw,true);});
+  });
+  el('slLogFollow').onclick=function(){slFollow=!slFollow;this.setAttribute('aria-pressed',slFollow?'true':'false');this.textContent=slFollow?'跟随滚动 ON':'跟随滚动 OFF';if(slFollow){const n=el('slLog');n.scrollTop=n.scrollHeight;}};
+  el('slLogCopy').onclick=function(){
+    const t=el('slLog').innerText||'';if(!t.trim())return;
+    const btn=this;const done=()=>{btn.textContent='已复制';setTimeout(()=>btn.textContent='复制',1500);};
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(done).catch(()=>{});}
+    else{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done();}catch(e){}document.body.removeChild(ta);}
+  };
+
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)historyStatus();});
+  refresh().then(loadOps);historyStatus();
+  setInterval(()=>{if(!document.hidden&&(!el('appView').classList.contains('hidden')||!el('localPersonalView').classList.contains('hidden'))){refresh().then(loadOps);historyStatus();if(!el('issuesPane').classList.contains('hidden'))loadSlLog(false);}},30000);
+})();
+</script>
+</body>
+</html>

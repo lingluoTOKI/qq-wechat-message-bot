@@ -1,0 +1,83 @@
+# === 本地配置（含个人账号信息）===
+个人QQ重要消息提醒/config.json
+个人QQ重要消息提醒/runtime.json
+管理面板/101.132.104.41
+
+# === 管理面板临时脚本 / 备份 ===
+管理面板/output/
+
+# === 敏感凭据（绝对不能传）===
+密码.md
+secrets.dpapi
+*.pem
+*.dpapi
+.vault
+vault.py
+
+# === 数据库 / 聊天记录 ===
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.db-shm
+*.db-wal
+wechat-cache/
+state.sqlite*
+wechat-state.sqlite*
+
+# === 运行时 / 安装包 / 大文件 ===
+*.exe
+*.msi
+*.dll
+*.node
+runtime-v*/
+node.exe
+astrbot相关/
+astrbot_plugins_top/
+dsh桌面端/
+其他环境依赖/
+snowluma相关/
+
+# === 第三方库（不需要传）===
+wechat-adapter-review/
+wushu-ops-review/
+
+# === 缓存 / 日志 / 临时文件 ===
+__pycache__/
+*.pyc
+*.pyo
+.workbuddy/
+*.log
+logs/
+relay.err.log
+relay.out.log
+wechat.err.log
+wechat.out.log
+startup.err.log
+startup.out.log
+local-panel.err.log
+local-panel.out.log
+
+# === 备份 ===
+*.bak
+*.bak-*
+backups/
+output/before-*/
+output/backup-*.py
+
+# === 媒体素材（太大）===
+TTS素材/
+知识库/
+云端部署提示词/
+人格提示词及表情包/
+
+# === 管理面板构建产物 / 截图 ===
+管理面板/output/playwright/
+管理面板/output/workbench-preview/
+管理面板/output/*.png
+管理面板/output/backup-*/
+
+# === 杂项 ===
+nul
+.DS_Store
+Thumbs.db

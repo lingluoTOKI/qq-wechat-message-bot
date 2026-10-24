@@ -1,0 +1,40 @@
+{
+  "qq_account": "你的QQ号",
+  "target_group": "目标群号",
+  "target_user": "接收通知的QQ号",
+  "qq_ws": "ws://127.0.0.1:3001/",
+  "model": "glm-4-flash",
+  "api_base": "https://open.bigmodel.cn/api/paas/v4",
+  "daily_cny": 0.1,
+  "monthly_cny": 3.0,
+  "input_cny_per_million": 0.8,
+  "output_cny_per_million": 2.8,
+  "max_output_tokens": 4096,
+  "batch_seconds": 120,
+  "listen_port": 31996,
+  "wechat_enabled": true,
+  "profile": {
+    "name": "你的名字",
+    "school": "你的学校",
+    "className": "你的班级",
+    "role": "你的角色",
+    "goal": "你的目标",
+    "target": "你的关注方向",
+    "description": "优先关注与本人有关的重要信息。",
+    "uncertain": "保留为待确认",
+    "noise": true,
+    "merge": true,
+    "interests": [
+      "考研报名与考试",
+      "班级通知",
+      "材料提交"
+    ]
+  },
+  "digest_hour": 21,
+  "provider": "bigmodel",
+  "budget_mode": "gift_tokens",
+  "gift_token_limit": 15000000,
+  "quiet_seconds": 120,
+  "max_wait_seconds": 480,
+  "digest_minute": 0
+}
