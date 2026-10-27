@@ -9,7 +9,7 @@
   "monthly_cny": 3.0,
   "input_cny_per_million": 0.8,
   "output_cny_per_million": 2.8,
-  "max_output_tokens": 4096,
+  "max_output_tokens": 2048,
   "batch_seconds": 120,
   "listen_port": 31996,
   "wechat_enabled": true,

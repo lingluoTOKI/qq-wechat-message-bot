@@ -1,10 +1,102 @@
 'use strict';
+const ttsUI={state:null,error:'',busy:'',reading:false,dirty:false,draft:{},updated:null,configOpen:false,logsOpen:false};
+const ttsFields=[['gpt_model_path','GPT 模型权重（.ckpt）'],['gpt_ckpt_path','SoVITS 模型权重（.pth）'],['ref_audio','参考音频（wav）'],['prompt_text','参考音频对应文本'],['gpt_api','合成服务地址'],['gsv_root','GPT-SoVITS 安装目录']];
+const rvcUI={state:null,error:'',busy:''};
+const gsvUI={state:null,error:'',busy:''};
+function gsvWebuiPort(){try{return (gsvUI.state&&gsvUI.state.port)||9874;}catch(e){return 9874;}}
+function rvcMsg(){const s=rvcUI.state||{};if(rvcUI.error)return '请确认本地面板服务正在运行（127.0.0.1:8765）。';if(!rvcUI.state)return '加载中。';if(rvcUI.busy==='start')return '正在启动 RVC WebUI（首次约 1 分钟）…';if(rvcUI.busy==='stop')return '正在停止 RVC…';if(s.running)return '进程运行中（PID '+(s.pid||'?')+'），端口 '+(s.port||'?')+(s.ready?' 已监听':' 尚未就绪');return '本机翻唱引擎未启动，点「启动 RVC」拉起 WebUI。';}
+function gsvMsg(){const s=gsvUI.state||{};if(gsvUI.error)return '请确认本地面板服务正在运行（127.0.0.1:8765）。';if(!gsvUI.state)return '加载中。';if(gsvUI.busy==='start')return '正在启动 GPT-SoVITS 面板（首次约 1 分钟，会加载模型）…';if(gsvUI.busy==='stop')return '正在停止面板…';if(s.running)return '面板运行中（PID '+(s.pid||'?')+'），端口 '+(s.port||'?')+(s.ready?' 已可打开':' 尚未就绪');return '合成引擎图形面板未启动，点「启动面板」打开界面（与合成 API 9880 是两套进程）。';}
+function renderTTS(){
+ const s=ttsUI.state||{},l=s.launch||{},waiting=['starting_api','waiting_api','starting_client','connecting'].includes(l.state)||ttsUI.busy==='start';
+ return `<div class="tts-view">${title('VOICE / 机器人语音','让大肥鱼，用熟悉的声音说话','本机合成，连接云端机器人。语音状态与控制集中在这里。',`<span class="tts-local-label">${icon('entry')} 本机运行</span>`)}
+ <section class="panel tts-control"><div><div class="eyebrow">本地语音服务</div><h2 id="ttsHeading">${ttsUI.error?'状态暂不可用':!ttsUI.state?'正在读取状态':s.running&&s.api_ready&&s.server_online?'语音链路已就绪':waiting?'正在启动语音服务':l.state==='error'?'启动未完成':s.running?'客户端运行中':'本地语音未启动'}</h2><p class="muted" id="ttsLaunch">${esc(l.message||'一键启动会准备合成服务，再连接机器人。')}</p></div><div class="tts-buttons"><button class="button primary" data-tts="start" ${ttsUI.busy||waiting||s.running&&s.api_ready?'disabled':''}>${waiting?'启动中…':'启动本地语音'}</button><button class="button" data-tts="stop" ${ttsUI.busy||!s.running&&!s.api_running?'disabled':''}>停止本地语音</button></div></section>
+ <p id="ttsError" class="tts-error" role="status" ${ttsUI.error?'':'hidden'}>${esc(ttsUI.error)}</p>
+ <div class="tts-status-grid">${[['client','本地客户端','负责接收机器人的语音任务',s.running],['engine','合成引擎','GPT-SoVITS · 本机生成声音',s.api_ready],['server','机器人连接','服务器能否连接到本机客户端',s.server_online]].map(([key,label,desc,on])=>`<section class="panel tts-status"><div class="tts-status-head"><h3>${label}</h3><span id="ttsState-${key}" class="tts-badge ${ttsUI.error?'unknown':on?'online':''}">${ttsUI.error?'待确认':!ttsUI.state?'检测中':on?'已就绪':'未就绪'}</span></div><p>${desc}</p></section>`).join('')}</div>
+ <section class="panel tts-control" style="border-left-color:#a66a41"><div><div class="eyebrow">本地翻唱引擎（RVC）</div><h2 id="rvcHeading">${rvcUI.error?'状态暂不可用':!rvcUI.state?'正在读取状态':rvcUI.state.running&&rvcUI.state.ready?'翻唱引擎已就绪':rvcUI.state.running?'RVC 启动中…':'RVC 未运行'}</h2><p class="muted" id="rvcMsg">${esc(rvcMsg())}</p></div><div class="tts-buttons"><button class="button primary" data-rvc="start" ${rvcUI.busy||(rvcUI.state&&rvcUI.state.running&&rvcUI.state.ready)?'disabled':''}>${rvcUI.busy==='start'?'启动中…':'启动 RVC'}</button><button class="button" data-rvc="stop" ${rvcUI.busy||!(rvcUI.state&&rvcUI.state.running)?'disabled':''}>停止 RVC</button></div></section>
+ <section class="panel tts-control" style="border-left-color:#7a5cc4"><div><div class="eyebrow">合成引擎面板（GPT-SoVITS）</div><h2 id="gsvHeading">${gsvUI.error?'状态暂不可用':!gsvUI.state?'正在读取状态':gsvUI.state.running&&gsvUI.state.ready?'面板已就绪':gsvUI.state.running?'面板启动中…':'面板未运行'}</h2><p class="muted" id="gsvMsg">${esc(gsvMsg())}</p></div><div class="tts-buttons"><button class="button primary" data-gsv="start" ${gsvUI.busy||(gsvUI.state&&gsvUI.state.running&&gsvUI.state.ready)?'disabled':''}>${gsvUI.busy==='start'?'启动中…':'启动面板'}</button><button class="button" data-gsv="stop" ${gsvUI.busy||!(gsvUI.state&&gsvUI.state.running)?'disabled':''}>停止面板</button></div></section>
+ <p id="gsvError" class="tts-error" role="status" ${gsvUI.error?'':'hidden'}>${esc(gsvUI.error)}</p>
+ <p id="rvcError" class="tts-error" role="status" ${rvcUI.error?'':'hidden'}>${esc(rvcUI.error)}</p>
+ <div class="tts-status-grid">${[['proc','翻唱进程','本地 RVC WebUI 进程（PID '+(rvcUI.state?rvcUI.state.pid||'-':'-')+'）',rvcUI.state&&rvcUI.state.running],['port','翻唱端口 7899','RVC WebUI 端口，翻唱链路调用它',rvcUI.state&&rvcUI.state.ready]].map(([key,label,desc,on])=>`<section class="panel tts-status"><div class="tts-status-head"><h3>${label}</h3><span id="rvcState-${key}" class="tts-badge ${rvcUI.error?'unknown':on?'online':''}">${rvcUI.error?'待确认':!rvcUI.state?'检测中':on?'已就绪':'未就绪'}</span></div><p>${desc}</p></section>`).join('')}</div>
+ <section class="panel tts-route"><div><h3>引擎端口直达</h3><p class="muted">在本机新标签打开对应 WebUI（需先点上方「启动面板 / 启动 RVC」）。GPT-SoVITS 面板在 ${gsvWebuiPort()}，RVC 在 7899。</p></div><div class="tts-route-steps"><a class="button" target="_blank" rel="noopener" href="http://127.0.0.1:${gsvWebuiPort()}">GPT-SoVITS ↗</a><a class="button" target="_blank" rel="noopener" href="http://127.0.0.1:7899">RVC ↗</a></div></section>
+ <section class="panel tts-route"><div><h3>语音备用通路</h3><p class="muted">本地不可用时按现有配置尝试备用服务，实际是否可用以调用结果为准。</p></div><div class="tts-route-steps"><span><b>01</b> 本机合成</span><i>→</i><span><b>02</b> MiMo</span><i>→</i><span><b>03</b> Edge TTS</span></div></section>
+ <details class="panel tts-disclosure" id="ttsConfig" ${ttsUI.configOpen?'open':''}><summary><span><strong>音色与模型配置</strong><small>已配置好时无需修改</small></span><span>配置 ›</span></summary><form id="ttsConfigForm"><div class="tts-form-grid">${ttsFields.map(([key,label])=>`<label class="field">${label}<input name="${key}" value="${esc(ttsUI.draft[key]??s.config?.[key]??'')}" autocomplete="off" spellcheck="false"></label>`).join('')}</div><div class="tts-form-footer"><span class="muted" id="ttsSaveHint">${ttsUI.dirty?'有尚未保存的修改':'模型与音频路径保存在本机'}</span><button class="button primary" type="submit" ${ttsUI.busy?'disabled':''}>保存配置</button></div></form></details>
+ <details class="panel tts-disclosure" id="ttsLogs" ${ttsUI.logsOpen?'open':''}><summary><span><strong>诊断日志</strong><small>连接或合成异常时查看</small></span><span>展开 ›</span></summary><pre class="tts-log" id="ttsLog">${esc(s.error_log||'暂无错误日志')}</pre></details>
+ <div class="tts-foot"><span id="ttsTime">${ttsUI.updated?'语音状态更新于 '+ttsUI.updated.toLocaleTimeString('zh-CN'):'等待首次状态检查'}</span><span>电脑关闭或休眠后，本地合成不可用</span></div></div>`;
+}
+async function refreshTTS(){
+ if(ttsUI.reading||typeof page==='undefined'||page!=='tts'||document.hidden)return;
+ ttsUI.reading=true;
+ try{ttsUI.state=await api('tts/status');ttsUI.updated=new Date();ttsUI.error='';}
+ catch(e){ttsUI.error='无法读取本地语音状态：'+e.message;}
+ finally{ttsUI.reading=false;}
+ if(page!=='tts')return;
+ // Update only status nodes, preserving focus, unsaved fields and expanded sections.
+ const template=document.createElement('template');template.innerHTML=renderTTS();
+ for(const id of ['ttsHeading','ttsLaunch','ttsError','ttsState-client','ttsState-engine','ttsState-server','ttsLog','ttsTime']){
+  const old=document.getElementById(id),fresh=template.content.querySelector('#'+id);if(old&&fresh){old.textContent=fresh.textContent;old.className=fresh.className;old.hidden=fresh.hidden;}
+ }
+ for(const action of ['start','stop']){const old=document.querySelector(`[data-tts="${action}"]`),fresh=template.content.querySelector(`[data-tts="${action}"]`);if(old&&fresh){old.disabled=fresh.disabled;old.textContent=fresh.textContent;}}
+ if(!ttsUI.dirty)for(const [key] of ttsFields){const input=document.querySelector(`#ttsConfigForm [name="${key}"]`);if(input&&document.activeElement!==input)input.value=ttsUI.state?.config?.[key]||'';}
+}
+document.addEventListener('input',e=>{if(e.target.closest('#ttsConfigForm')){ttsUI.dirty=true;ttsUI.draft[e.target.name]=e.target.value;const n=document.getElementById('ttsSaveHint');if(n)n.textContent='有尚未保存的修改';}});
+document.addEventListener('toggle',e=>{if(e.target.id==='ttsConfig')ttsUI.configOpen=e.target.open;if(e.target.id==='ttsLogs')ttsUI.logsOpen=e.target.open;},true);
+document.addEventListener('click',async e=>{
+ const b=e.target.closest('[data-tts]');if(!b)return;
+ if(ttsUI.busy)return;const action=b.dataset.tts;ttsUI.busy=action;b.disabled=true;
+ try{const result=await api('tts/'+action,{});toast(result.message||'操作已提交');}catch(err){toast(err.message);}finally{ttsUI.busy='';await refreshTTS();}
+});
+document.addEventListener('submit',async e=>{
+ if(e.target.id!=='ttsConfigForm')return;e.preventDefault();if(ttsUI.busy)return;
+ const payload=Object.fromEntries(new FormData(e.target));const before=JSON.stringify(payload);ttsUI.busy='save';const b=e.target.querySelector('button[type=submit]');b.disabled=true;
+ try{const r=await api('tts/config',payload);if(JSON.stringify(Object.fromEntries(new FormData(e.target)))===before){ttsUI.dirty=false;ttsUI.draft={};}toast(r.message||'配置已保存');document.getElementById('ttsSaveHint').textContent=ttsUI.dirty?'仍有尚未保存的修改':'配置已保存';}catch(err){toast('保存失败：'+err.message);}finally{ttsUI.busy='';b.disabled=false;}
+});
+async function refreshRVC(){
+ if(typeof page==='undefined'||page!=='tts'||document.hidden)return;
+ try{rvcUI.state=await api('rvc/status');rvcUI.error='';}
+ catch(e){rvcUI.error='无法读取 RVC 状态：'+e.message;}
+ if(page!=='tts')return;
+ const template=document.createElement('template');template.innerHTML=renderTTS();
+ for(const id of ['rvcHeading','rvcMsg','rvcError','rvcState-proc','rvcState-port']){
+  const old=document.getElementById(id),fresh=template.content.querySelector('#'+id);if(old&&fresh){old.textContent=fresh.textContent;old.className=fresh.className;old.hidden=fresh.hidden;}
+ }
+ for(const action of ['start','stop']){const old=document.querySelector('[data-rvc="'+action+'"]'),fresh=template.content.querySelector('[data-rvc="'+action+'"]');if(old&&fresh){old.disabled=fresh.disabled;old.textContent=fresh.textContent;}}
+}
+document.addEventListener('click',async e=>{
+ const b=e.target.closest('[data-rvc]');if(!b)return;
+ if(rvcUI.busy)return;const action=b.dataset.rvc;rvcUI.busy=action;b.disabled=true;
+ try{const result=await api('rvc/'+action,{});toast(result.message||'操作已提交');}catch(err){toast(err.message);}finally{rvcUI.busy='';await refreshRVC();}
+});
+async function refreshGSV(){
+ if(typeof page==='undefined'||page!=='tts'||document.hidden)return;
+ try{gsvUI.state=await api('gsv/status');gsvUI.error='';}
+ catch(e){gsvUI.error='无法读取 GPT-SoVITS 面板状态：'+e.message;}
+ if(page!=='tts')return;
+ const template=document.createElement('template');template.innerHTML=renderTTS();
+ for(const id of ['gsvHeading','gsvMsg','gsvError']){
+  const old=document.getElementById(id),fresh=template.content.querySelector('#'+id);if(old&&fresh){old.textContent=fresh.textContent;old.className=fresh.className;old.hidden=fresh.hidden;}
+ }
+ for(const action of ['start','stop']){const old=document.querySelector('[data-gsv="'+action+'"]'),fresh=template.content.querySelector('[data-gsv="'+action+'"]');if(old&&fresh){old.disabled=fresh.disabled;old.textContent=fresh.textContent;}}
+}
+document.addEventListener('click',async e=>{
+ const b=e.target.closest('[data-gsv]');if(!b)return;
+ if(gsvUI.busy)return;const action=b.dataset.gsv;gsvUI.busy=action;b.disabled=true;
+ try{const result=await api('gsv/'+action,{});toast(result.message||'操作已提交');}catch(err){toast(err.message);}finally{gsvUI.busy='';await refreshGSV();}
+});
+document.addEventListener('DOMContentLoaded',()=>{
+ paths.tts='<path d="M5 9v6h4l5 4V5L9 9H5zM18 8a7 7 0 0 1 0 8M21 5a11 11 0 0 1 0 14"/>';
+ const previousGo=go;go=function(next){previousGo(next);if(page==='tts'){refreshTTS();refreshRVC();refreshGSV();}};
+ const oldRefresh=document.getElementById('refresh').onclick;document.getElementById('refresh').onclick=function(e){if(page==='tts'){refreshTTS();refreshRVC();refreshGSV();return;}return oldRefresh?.call(this,e);};
+ renderNav();if(page==='tts'){refreshTTS();refreshRVC();refreshGSV();}
+});
+setInterval(()=>{if(typeof page!=='undefined'&&page==='tts'&&!document.hidden){refreshTTS();refreshRVC();refreshGSV();}},5000);
+
+'use strict';
 // Local workbench: authenticated operations; raw chats and credentials stay on the host.
 const $=id=>document.getElementById(id), esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const paths={tasks:'<path d="m5 12 4 4L19 6"/><rect x="3" y="3" width="18" height="18" rx="4"/>',reference:'<path d="M6 3h12v19l-6-4-6 4z"/>',history:'<path d="M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l3 2"/>',groups:'<circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 5a3 3 0 0 1 0 6M18 15a4 4 0 0 1 3 4v2"/>',overview:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',entry:'<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 22h8M12 18v4m-3-12 4 4-4 4"/>',logs:'<path d="M6 3h9l4 4v14H6zM15 3v5h4M9 12h7M9 16h7"/>',settings:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="currentColor" stroke="none"/><circle cx="15" cy="17" r="3" fill="currentColor" stroke="none"/>',refresh:'<path d="M20 7a9 9 0 1 0 1 8M20 2v6h-6"/>',search:'<circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/>',close:'<path d="m6 6 12 12M18 6 6 18"/>',menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',arrow:'<path d="M5 12h14m-6-6 6 6-6 6"/>',check:'<path d="m5 12 4 4L19 6"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>'};
 function icon(name){return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name]||paths.info}</svg>`;}
 function hydrate(){document.querySelectorAll('[data-icon]').forEach(n=>n.innerHTML=icon(n.dataset.icon));}
-const menus=[['tasks','今日待办'],['reference','参考资料'],['history','历史摘要'],['groups','关注群聊'],['overview','服务概览'],['entry','控制台入口'],['logs','运行日志']];
+const menus=[['tasks','今日待办'],['reference','参考资料'],['history','历史摘要'],['groups','关注群聊'],['overview','服务概览'],['entry','控制台入口'],['logs','运行日志'],['tts','本地语音']];
 const defaults={};
 let prefs={},tasks=[],refs=[],groups=[],ops={},connection=null,cloud=null,localError='',cloudError='',lastSync=null;
 let page=localStorage.getItem('fish-workbench-page')||'tasks',source='all',query='',showDone=false,selectedGroups=new Set(),toastTimer,historyRecords=[],selectedHistory=null;
@@ -21,8 +113,8 @@ function platformBadge(p){return `<span class="source-tag ${p==='qq'?'qq':''}">$
 function toolbar(placeholder='搜索事项',checks=true){return `<div class="toolbar"><div class="segments" aria-label="来源筛选">${[['all','全部'],['qq','QQ'],['wechat','微信']].map(([k,v])=>`<button data-source="${k}" class="${source===k?'selected':''}" aria-pressed="${source===k}">${v}</button>`).join('')}</div><div class="toolbar-right">${checks?`<label class="quiet-check"><input type="checkbox" id="showDone" ${showDone?'checked':''}>${page==='reference'?'显示已阅 / 低关注':'显示已处理'}</label>`:''}<label class="search">${icon('search')}<input id="search" aria-label="${placeholder}" placeholder="${placeholder}" value="${esc(query)}"></label></div></div>`;}
 function matches(v){return (source==='all'||v.platform===source)&&((v.title||v.label)+' '+(v.group||'')).toLowerCase().includes(query.toLowerCase());}
 function empty(heading,text,action=''){return `<div class="empty"><span class="empty-icon">${icon('check')}</span><h3>${heading}</h3><p>${text}</p>${action}</div>`;}
-function render(){renderNav();$('pageName').textContent=({settings:'设置',status:'运行状态'}[page]||menus.find(m=>m[0]===page)?.[1]);$('breadcrumb').textContent=['overview','entry','logs'].includes(page)?'机器人管理':'个人消息';$('sidebarState').textContent=localError?'连接异常':connection?'QQ '+(connection.qq_connected?'在线':'离线')+' · 微信 '+wechatLabel(connection.wechat_state):'正在检查';$('updatedAt').textContent=lastSync?'更新于 '+lastSync.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}):'尚未刷新';$('alertRegion').innerHTML=localError&&!['overview','entry','logs'].includes(page)?`<div class="alert">${icon('info')}<span>本地提醒未刷新：${esc(localError)}。以下保留上次读取内容。</span><button data-page="status">查看连接</button></div>`:'';
-const builders={tasks:renderTasks,reference:renderReferences,history:renderHistory,groups:renderGroups,settings:renderSettings,status:renderStatus,overview:renderOverview,entry:renderEntry,logs:renderLogs};$('main').innerHTML=builders[page]();hydrate();}
+function render(){renderNav();$('pageName').textContent=({settings:'设置',status:'运行状态'}[page]||menus.find(m=>m[0]===page)?.[1]);$('breadcrumb').textContent=['overview','entry','logs','tts'].includes(page)?'机器人管理':'个人消息';$('sidebarState').textContent=localError?'连接异常':connection?'QQ '+(connection.qq_connected?'在线':'离线')+' · 微信 '+wechatLabel(connection.wechat_state):'正在检查';$('updatedAt').textContent=lastSync?'更新于 '+lastSync.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}):'尚未刷新';$('alertRegion').innerHTML=localError&&!['overview','entry','logs','tts'].includes(page)?`<div class="alert">${icon('info')}<span>本地提醒未刷新：${esc(localError)}。以下保留上次读取内容。</span><button data-page="status">查看连接</button></div>`:'';
+const builders={tasks:renderTasks,reference:renderReferences,history:renderHistory,groups:renderGroups,settings:renderSettings,status:renderStatus,overview:renderOverview,entry:renderEntry,logs:renderLogs,tts:renderTTS};$('main').innerHTML=builders[page]();hydrate();}
 function renderTasks(){if(!ops.preferences)return title('TODAY / 个人消息','今日待办')+empty(localError?'本地提醒未连接':'正在读取事项',localError?'尚不能确认待办数量，请启动本地提醒后刷新。':'请稍候，正在读取已保存的事项。',localError?button('启动本地提醒','start','primary'):'');const values=tasks.filter(t=>matches(t)&&(showDone||!t.done));let html=title('TODAY / 个人消息','今天，需要关注什么？','先处理明确的事，其余信息留在参考资料。',button('查看群历史 '+icon('arrow'),'summary','text'))+toolbar();
 for(const [key,label,sub] of [['overdue','已逾期','优先核实'],['today','今天','优先处理'],['later','后续','提前安排'],['unknown','待确认','补充期限后再安排'],['snoozed','稍后处理','已设置的提醒按时私聊；未设置则仅收起']]){const rows=values.filter(t=>key==='snoozed'?t.snoozed:!t.snoozed&&t.bucket===key);if(!rows.length)continue;html+=`<div class="section-label"><strong>${label}</strong><small>${rows.length}</small><span class="line"></span><small>${sub}</small></div><div class="task-list">`+rows.map(t=>`<article class="task-row ${t.done?'is-done':''}"><button class="task-check ${t.done?'done':''}" aria-label="${t.done?'恢复':'完成'}：${esc(t.title)}" data-action="complete" data-id="${t.id}">${t.done?'✓':''}</button><button class="task-body" data-action="detail" data-id="${t.id}"><strong>${esc(t.title)}</strong><small>${platformBadge(t.platform)} ${esc(t.group)} <span>· ${esc(t.time)}</span></small></button><div class="deadline ${t.bucket==='today'&&!t.done?'urgent':''}">${esc(t.deadline)}<small>${t.done?'已完成':t.snoozed?'已暂存':t.bucket==='unknown'?'待核实':'截止时间'}</small></div><button class="icon-button chevron" aria-label="查看${esc(t.title)}详情" data-action="detail" data-id="${t.id}">›</button></article>`).join('')+'</div>';}
 if(!values.length)html+=empty(query?'没有匹配的事项':'暂无待处理事项',query?'换个关键词或来源试试。':'有用的参考信息仍保留在资料页，你可以安心继续自己的安排。',button('查看参考资料','goto-reference','text'));
@@ -68,12 +160,12 @@ else if(a==='cancel-history'){await api('history',{action:'cancel'});await refre
 else if(a==='export-history')download('群历史摘要.txt','群历史摘要 '+fmt(historyValue.started_at)+'\n'+(historyValue.scope||'')+'\n'+(historyValue.items||[]).map(i=>`【${i.platform==='qq'?'QQ':'微信'} · ${i.source}】\n${i.summary}\n${i.deadline||''}\n${i.action||''}`).join('\n\n')+'\n'+(historyValue.warnings||[]).join('\n'));
 else if(a==='save-settings')await savePrefs();else if(a==='save-tuning'){const bs=Number($('batchSeconds').value),qs=Number($('quietSeconds').value);if(!(bs>=30&&bs<=600&&qs>=30&&qs<=600))throw Error('参数范围30~600秒');await api('operations',{action:'batch-tuning',batch_seconds:bs,quiet_seconds:qs});toast('节奏已保存，下一轮分析生效。');}else if(a==='export-matters')download('个人事项.txt',(ops.matters||[]).map(v=>`【${v.source}】${v.done?'已处理':'未处理'}\n${v.summary}\n${v.deadline||''}\n${v.action||''}`).join('\n\n'));
 else if(a==='demo-manage')go('status');else if(a==='quota')showQuota();else if(a==='start')await startLocal();else if(a==='calibrate'){const input=$('quotaRemaining');if(input.value===''||!input.reportValidity())throw Error('请填写有效的平台剩余额度');await api('calibrate',{remaining:Number(input.value)});$('detailDialog').close();await refreshData();toast('余额已校准。');}
-else if(a==='cloud-refresh')await refreshCloud();else if(a==='logs-refresh')await readLogs();else if(['retry_analysis','dismiss_delivery','retry_delivery'].includes(a)){if(a==='retry_delivery'&&!confirm('确认接收人的QQ未收到？补发可能产生重复通知。'))return;await mutate({action:a,id,confirmed:true});render();toast('操作已保存。');}
+else if(a==='cloud-refresh')await refreshCloud();else if(a==='logs-refresh')await readLogs();else if(a==='retry-all-failed'){const v=await api('operations',{action:'retry_all_failed'});await refreshData(false);render();toast(v.message||'已重新加入队列。');}else if(['retry_analysis','dismiss_delivery','retry_delivery'].includes(a)){if(a==='retry_delivery'&&!confirm('确认接收人的QQ未收到？补发可能产生重复通知。'))return;await mutate({action:a,id,confirmed:true});render();toast('操作已保存。');}
 }catch(error){toast(error.message);}finally{if(b.isConnected)b.disabled=false;}});
 document.addEventListener('change',async e=>{const n=e.target;try{if(n.id==='showDone'){showDone=n.checked;render();}else if(n.dataset.groupSelect){n.checked?selectedGroups.add(n.dataset.groupSelect):selectedGroups.delete(n.dataset.groupSelect);render();}else if(n.id==='selectAll'){groups.filter(matches).forEach(g=>n.checked?selectedGroups.add(g.id):selectedGroups.delete(g.id));render();}else if(n.dataset.groupLevel||n.dataset.groupDelivery){const g=groups.find(g=>g.id===(n.dataset.groupLevel||n.dataset.groupDelivery)),field=n.dataset.groupLevel?'level':'delivery',before=g[field];if(n.value==='暂停分析'&&!confirm('暂停后可能漏掉该群通知。明确选择的历史总结仍可运行。继续？')){n.value=before;return;}n.disabled=true;try{await groupUpdate(g,{[field]:n.value});toast('群聊设置已保存。',async()=>{await groupUpdate(g,{[field]:before});render();});}catch(error){n.value=before;throw error;}finally{n.disabled=false;}}else if(n.id==='logSource'){logSource=n.value;await readLogs();}}catch(error){toast(error.message);}});
 document.addEventListener('input',e=>{if(e.target.closest('#preferences'))prefsDirty=true;if(e.target.id==='search'){const pos=e.target.selectionStart;query=e.target.value;render();$('search').focus();$('search').setSelectionRange(pos,pos);}});
 $('summaryForm').onsubmit=async e=>{e.preventDefault();const ids=[...document.querySelectorAll('[name=summaryGroup]:checked')].map(n=>n.value);if(!ids.length||ids.length>10){toast('请选择1至10个群聊。');return;}const b=e.submitter;b.disabled=true;try{await api('history',{days:Number($('summaryRange').value),source:'all',groups:ids});$('summaryDialog').close();selectedHistory=null;go('history');}catch(error){toast(error.message);}finally{b.disabled=false;}};
 document.addEventListener('submit',async e=>{if(e.target.id==='preferences'){e.preventDefault();try{await savePrefs();}catch(error){toast(error.message);}}if(e.target.id==='cloudLogin'){e.preventDefault();const password=$('cloudPassword').value;try{const r=await fetch('/api/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({password}),signal:AbortSignal.timeout(10000)}),v=await r.json();if(!r.ok||!v.ok)throw Error(v.message||'登录失败');$('cloudPassword').value='';await refreshCloud();}catch(error){toast(error.message);}}});
 $('refresh').onclick=async()=>{if(prefsDirty){toast('设置尚未保存，请先保存或离开设置页。');return;}if(page==='history')await refreshHistory();else if(page==='logs')await readLogs();else if(page==='overview')await refreshCloud();else await refreshData();};$('menuToggle').onclick=()=>{$('sidebar').classList.add('open');$('scrim').hidden=false;};$('scrim').onclick=()=>{$('sidebar').classList.remove('open');$('scrim').hidden=true;};document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('sidebar').classList.remove('open');$('scrim').hidden=true;}});
-render();refreshData();if(page==='history')refreshHistory();if(page==='overview')refreshCloud();setInterval(()=>{if(document.hidden)return;if(page==='history'&&!selectedHistory)refreshHistory();},4000);setInterval(()=>{if(document.hidden||loading)return;refreshData(false).then(()=>{if(!prefsDirty&&!$('detailDialog').open&&!$('summaryDialog').open&&!document.activeElement?.matches('input,select,textarea')&&page!=='history'&&page!=='logs'&&page!=='overview'&&page!=='entry')render();});},30000);
+render();refreshData();if(page==='history')refreshHistory();if(page==='overview')refreshCloud();setInterval(()=>{if(document.hidden)return;if(page==='history'&&!selectedHistory)refreshHistory();},4000);setInterval(()=>{if(document.hidden||loading)return;refreshData(false).then(()=>{if(!prefsDirty&&!$('detailDialog').open&&!$('summaryDialog').open&&!document.activeElement?.matches('input,select,textarea')&&page!=='history'&&page!=='logs'&&page!=='overview'&&page!=='entry'&&page!=='tts')render();});},30000);
 

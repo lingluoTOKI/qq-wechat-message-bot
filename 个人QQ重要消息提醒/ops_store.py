@@ -116,6 +116,14 @@ class OpsStore(ReliabilityStore, WorkbenchStore):
             elif action=='retry_analysis' and isinstance(key,str):
                 if self.db.execute("SELECT count(*) FROM events WHERE status='pending'").fetchone()[0]>=500:return web.json_response({'message':'队列已满，请稍后重试。'},status=409)
                 self.db.execute("UPDATE events SET status='pending',retries=0,next_attempt=0 WHERE id=? AND status='analysis_failed'",(key,))
+            elif action=='retry_all_failed':
+                pending=self.db.execute("SELECT count(*) FROM events WHERE status='pending'").fetchone()[0]
+                capacity=max(0,480-pending)
+                if not capacity:return web.json_response({'message':'队列已满，等消化一部分后再点。'},status=409)
+                ids=[r[0] for r in self.db.execute("SELECT id FROM events WHERE status='analysis_failed' ORDER BY at DESC LIMIT ?",(capacity,))]
+                self.db.executemany("UPDATE events SET status='pending',retries=0,next_attempt=0 WHERE id=?",[(i,) for i in ids])
+                remaining=self.db.execute("SELECT count(*) FROM events WHERE status='analysis_failed'").fetchone()[0]
+                return web.json_response({'message':f'已重新加入 {len(ids)} 条，还剩 {remaining} 条，可消化后再点。'})
             elif action=='retry_delivery' and isinstance(key,str) and value.get('confirmed') is True:
                 self.db.execute("UPDATE delivery SET status='pending' WHERE id=? AND status='uncertain'",(key,))
             elif action=='dismiss_delivery' and isinstance(key,str):

@@ -1,0 +1,112 @@
+{
+  "enabled": {
+    "description": "是否启用翻唱功能",
+    "type": "bool",
+    "default": true
+  },
+  "enable_search": {
+    "description": "启用 /点歌 自动搜歌（网易云，免费曲可直接下，VIP 自动换同名免费版）",
+    "type": "bool",
+    "default": true
+  },
+  "enable_bili": {
+    "description": "网易云拿不到（VIP/下架）时，自动去 B 站搜同名音频兜底（复用「我想听歌！」的登录态）",
+    "type": "bool",
+    "default": true
+  },
+  "proxy_url": {
+    "description": "本地语音代理地址（容器内访问宿主机用 http://172.18.0.1:32000）",
+    "type": "string",
+    "default": "http://172.18.0.1:32000"
+  },
+  "proxy_token": {
+    "description": "与服务器 local_tts_server 的 LTT_TOKEN 一致（留空则不带鉴权）",
+    "type": "string",
+    "default": ""
+  },
+  "max_seconds": {
+    "description": "自己发的音频最大时长（秒），超出截断。建议 60-90",
+    "type": "int",
+    "default": 90
+  },
+  "song_seconds": {
+    "description": "点歌翻唱的最大时长（秒）。整首歌一般 180-260 秒，太长会很慢",
+    "type": "int",
+    "default": 300
+  },
+  "timeout": {
+    "description": "等待本机完成转换的最长秒数（分离+RVC 比较慢，建议 700 以上）",
+    "type": "int",
+    "default": 700
+  },
+  "wait_ttl": {
+    "description": "执行 /翻唱 后等待音频的秒数",
+    "type": "int",
+    "default": 180
+  },
+  "pick_ttl": {
+    "description": "点歌后等用户回复序号的秒数",
+    "type": "int",
+    "default": 120
+  },
+  "pitch": {
+    "description": "变调（半音）。原曲是男声就填 12（升高一个八度更像女声），女声原曲填 0。注意：变调走本机的 rubberband 离线预处理，RVC 内部变调恒为 0（内部变调会让音高跟着漂、放大跑调）",
+    "type": "int",
+    "default": 0
+  },
+  "record_max_seconds": {
+    "description": "翻唱结果以语音条发送的最大时长（秒）。QQ 官方语音软限制 20MB 且不限时长，整首歌也能发语音；超过这个值才降级成文件",
+    "type": "int",
+    "default": 300
+  },
+  "record_max_mb": {
+    "description": "语音条的最大体积（MB），超过则改为发文件。QQ 官方语音软限制 20MB",
+    "type": "int",
+    "default": 15
+  },
+  "send_mode": {
+    "description": "翻唱结果默认发送方式。auto=按时长自动（短的发语音、超长发文件）；voice=尽量发语音条（群里直接听，但会被压成 24k 单声道）；file=发文件（44.1k 立体声完整音质，需下载）。命令里带「语音」「文件」可临时覆盖",
+    "type": "string",
+    "default": "auto"
+  },
+  "max_mb": {
+    "description": "单首歌曲下载体积上限（MB）",
+    "type": "int",
+    "default": 40
+  },
+  "harmony": {
+    "description": "和声处理：分离模型会把和声留在伴奏轨（等于和声还是原唱的嗓子）。开启后多拆一遍，和声也一起换成洛天依，慢约 10 秒",
+    "type": "bool",
+    "default": true
+  },
+  "index_rate": {
+    "description": "检索特征占比。0.75 会把音高一起带偏（发飘/怪音），0.4 是盲听最稳的一档；0 则完全不检索",
+    "type": "float",
+    "default": 0.4
+  },
+  "protect": {
+    "description": "清辅音保护。注意语义是反的：小于 0.5 才启用，0.5 = 完全不保护。0.33 官方默认，0.25 保护更强但换声略淡",
+    "type": "float",
+    "default": 0.33
+  },
+  "resample_sr": {
+    "description": "后处理重采样，0 = 不重采样（本版 RVC 已无 filter_radius 参数，别再往这里传值）",
+    "type": "int",
+    "default": 0
+  },
+  "f0_method": {
+    "description": "音高提取算法：rmvpe（官方默认，推荐）/ pm / fcpe（更平滑，但低频缺陷大，只能当高级可选项，别设成默认）",
+    "type": "string",
+    "default": "rmvpe"
+  },
+  "rms_mix_rate": {
+    "description": "音量包络融合，越接近 1 越用输出包络（响度更平但可能压掉原曲动态）。官方默认 0.25",
+    "type": "float",
+    "default": 0.25
+  },
+  "preset": {
+    "description": "推理预设（来自本机 rvc_presets.json）。A = 稳定难句预设（兜底，index_rate 0.45 / protect 0.25 / rms 0.35）；B = 高质量音色预设（平稳段，index_rate 0.70 / protect 0.33 / rms 0.25）。留空 = 用上面这些手调参数。选了预设就以预设为准（预设里的值不再被单项参数覆盖）",
+    "type": "string",
+    "default": ""
+  }
+}

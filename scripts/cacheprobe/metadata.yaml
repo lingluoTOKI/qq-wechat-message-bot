@@ -1,0 +1,6 @@
+name: astrbot_plugin_cacheprobe
+display_name: 缓存探针
+desc: 记录每次 LLM 请求的 system prompt 指纹与调用来源，用于定位前缀缓存破坏。
+version: 1.0.0
+author: ops
+repo:

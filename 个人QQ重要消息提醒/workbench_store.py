@@ -93,7 +93,8 @@ class WorkbenchStore:
             cfg['batch_seconds']=bs;cfg['quiet_seconds']=qs
             cfg_path.write_text(json.dumps(cfg,ensure_ascii=False,indent=2),encoding='utf-8')
             return True
-        if action=='group_settings':            if value.get('level') not in LEVELS or value.get('delivery') not in ('重要事项即时','仅每日汇总'):raise web.HTTPBadRequest(text='invalid_group_setting')
+        if action=='group_settings':
+            if value.get('level') not in LEVELS or value.get('delivery') not in ('重要事项即时','仅每日汇总'):raise web.HTTPBadRequest(text='invalid_group_setting')
             if not self.db.execute('SELECT 1 FROM watched_groups WHERE id=?',(key,)).fetchone():raise web.HTTPNotFound()
             with self.db:self.db.execute('UPDATE watched_groups SET level=?,delivery=?,focused=? WHERE id=?',(value['level'],value['delivery'],int(value['level']=='重点关注'),key))
             return True

@@ -1,0 +1,7 @@
+name: astrbot_plugin_dafeiyu_cover
+desc: AI 翻唱：把一段音频换成洛天依的音色。推理跑在用户电脑的 RVC 上，服务器只做编排（复用本地语音通道）。
+short_desc: AI 翻唱换音色
+version: 1.0.0
+author: ops
+display_name: 翻唱
+astrbot_version: ">=4.25.5"

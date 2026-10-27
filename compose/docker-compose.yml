@@ -1,0 +1,50 @@
+services:
+  astrbot:
+    image: soulter/astrbot:pinned-4.29.3
+    container_name: astrbot
+    restart: unless-stopped
+    networks: [botnet]
+    ports:
+      - "127.0.0.1:6185:6185"
+      - "127.0.0.1:6199:6199"
+    volumes:
+      - /opt/bot-stack/astrbot/data:/AstrBot/data
+    environment:
+      - PYTHONPATH=/AstrBot/data/pylibs
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  snowluma:
+    image: motricseven7/snowluma:latest
+    container_name: snowluma
+    restart: unless-stopped
+    shm_size: "1g"
+    cap_add: [SYS_PTRACE]
+    security_opt: ["seccomp=unconfined"]
+    networks: [botnet]
+    ports:
+      - "127.0.0.1:6081:6081"
+      - "127.0.0.1:5099:5099"
+      - "127.0.0.1:13000:3000"
+      - "127.0.0.1:13001:3001"
+    volumes:
+      - qq-gateway-data:/app/data
+      - qq-client-config:/app/.config
+      - qq-client-data:/app/.local/share
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  qq-gateway-data:
+  qq-client-config:
+  qq-client-data:
+
+networks:
+  botnet:
+    name: botnet

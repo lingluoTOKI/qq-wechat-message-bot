@@ -77,6 +77,19 @@ TTS素材/
 管理面板/output/*.png
 管理面板/output/backup-*/
 
+# === 本地 TTS 客户端运行时（含服务器 token，不能传）===
+管理面板/本地TTS/config.json
+*.pid
+
+# === 临时工作区 / 测试音频 / 模型权重（体积大）===
+_tmp/
+tmp/
+review/
+voicetest/
+*.pth
+*.ckpt
+*.index
+
 # === 杂项 ===
 nul
 .DS_Store

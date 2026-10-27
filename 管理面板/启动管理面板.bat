@@ -41,7 +41,7 @@ echo.
 
 REM ---------- 3. 启动 SSH 隧道（本窗口内后台运行） ----------
 echo  [2/4] 建立 SSH 隧道 -^> %HOST% ...
-start /b ssh -N -T -E "%LOGDIR%\tunnel.log" -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new -i "%KEY%" -L 6185:127.0.0.1:6185 -L 5099:127.0.0.1:5099 -L 6081:127.0.0.1:6081 -L 8080:127.0.0.1:8080 %USER%@%HOST%
+start /b ssh -N -T -E "%LOGDIR%\tunnel.log" -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new -i "%KEY%" -L 6185:127.0.0.1:6185 -L 5099:127.0.0.1:5099 -L 6081:127.0.0.1:6081 -L 8080:127.0.0.1:8080 -L 32000:127.0.0.1:32000 %USER%@%HOST%
 
 set /a TRIES=0
 :WAIT_TUNNEL
@@ -127,6 +127,8 @@ REM ---------- 子程序：按监听端口结束残留进程 ----------
 :KILL_PORTS
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr /C:"127.0.0.1:6185 " ^| findstr "LISTENING"') do taskkill /F /PID %%a >nul 2>&1
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr /C:"127.0.0.1:8765 " ^| findstr "LISTENING"') do taskkill /F /PID %%a >nul 2>&1
+REM 32000 是本地 TTS 隧道的转发端口；若有残留隧道占着它，ssh 会因 ExitOnForwardFailure 直接退出
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr /C:":32000 " ^| findstr "LISTENING"') do taskkill /F /PID %%a >nul 2>&1
 goto :eof
 
 :NO_SSH
