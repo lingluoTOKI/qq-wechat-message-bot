@@ -73,14 +73,19 @@ def _strip_noise(text: str) -> str:
 
 
 def _first_token(text: str) -> str:
-    """取命令名：优先带斜杠的词，否则取第一个词。"""
+    """取命令名：优先斜杠后的词（允许 "/ cmd" 这种斜杠后带空格），否则取第一个词。"""
     t = _strip_noise(text)
     if not t:
         return ""
     words = t.split()
-    for w in words:
+    for i, w in enumerate(words):
         if w.startswith("/"):
-            return w.lstrip("/").strip().lower()
+            name = w.lstrip("/").strip()
+            if name:
+                return name.lower()
+            if i + 1 < len(words):          # "/ ctxbudget"
+                return words[i + 1].strip().lower()
+            return ""
     return words[0].strip().lower()
 
 
@@ -121,6 +126,46 @@ def _known_commands() -> set[str]:
         pass
     _KNOWN_CACHE = names
     return names
+
+
+# 管理员判定用的 ID 列表（QQ 号 + openid 两种形式都收）。
+# 框架的 admins_id 在 qq_official 上比对的是 QQ 号，而面板里常填 openid，
+# 这里自己兜住，避免"改了 admins_id 也不生效"。
+DEFAULT_ADMIN_IDS = ("474496195", "D3EB1FC111219D62DA6C12702EC52055")
+
+
+def _is_admin(event: AstrMessageEvent) -> bool:
+    """判断发信人是不是管理员：QQ 号 / openid 任一命中即算。"""
+    try:
+        if event.is_admin():
+            return True
+    except Exception:
+        pass
+    ids = set(DEFAULT_ADMIN_IDS)
+    try:
+        cfg = getattr(event, "config", None) or {}
+        extra = cfg.get("admin_ids") if isinstance(cfg, dict) else None
+        if extra:
+            ids.update(str(x) for x in extra)
+    except Exception:
+        pass
+    candidates = []
+    try:
+        candidates.append(str(event.get_sender_id() or ""))
+    except Exception:
+        pass
+    try:
+        candidates.append(str(getattr(event.message_obj, "sender_id", "") or ""))
+    except Exception:
+        pass
+    try:
+        candidates.append(str(getattr(event.message_obj.sender, "user_id", "") or ""))
+    except Exception:
+        pass
+    for c in candidates:
+        if c and c in ids:
+            return True
+    return False
 
 
 class CtxBudgetMixin:
@@ -206,11 +251,7 @@ class CtxBudgetMixin:
             tok = _first_token(clean)
             if not tok:
                 return
-            is_admin = False
-            try:
-                is_admin = bool(event.is_admin())
-            except Exception:
-                is_admin = False
+            is_admin = _is_admin(event)
 
             # 我们的诊断命令：任何形式都自己处理，绝不让模型"演"
             if tok == CMD_CTXBUDGET:
@@ -303,9 +344,6 @@ class CtxBudgetMixin:
     @filter.command("ctxbudget")
     async def ctxbudget_cmd(self, event: AstrMessageEvent):
         """管理员用的上下文/缓存真实诊断。"""
-        try:
-            if not event.is_admin():
-                return  # 非管理员：静默忽略，不回复、不耗 token
-        except Exception:
-            return
+        if not _is_admin(event):
+            return  # 非管理员：静默忽略，不回复、不耗 token
         await self._send_ctxbudget(event)
