@@ -46,3 +46,75 @@ body{background:radial-gradient(ellipse at 95% 0,#e8eeea66,transparent 65%),var(
 .tts-view{max-width:1240px;margin:auto}.tts-view .title-row{margin-bottom:24px}.tts-local-label{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--teal);white-space:nowrap}.tts-control{display:flex;justify-content:space-between;align-items:center;gap:24px;border-left:3px solid var(--teal)}.tts-control h2{margin:6px 0 8px}.tts-control p{max-width:650px;font-size:13px}.tts-buttons{display:flex;gap:10px;flex-shrink:0}.tts-status-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:18px 0}.tts-status-grid .panel{margin:0}.tts-status-head{display:flex;justify-content:space-between;align-items:center;gap:12px}.tts-status p{font-size:12px;color:var(--muted);margin-top:12px}.tts-badge{font-size:11px;white-space:nowrap;background:var(--bg);color:var(--muted);padding:3px 9px;border-radius:5px}.tts-badge.online{background:var(--teal-soft);color:var(--teal)}.tts-badge.unknown,.tts-error{color:var(--orange)}.tts-error{padding:10px 0}.tts-route{display:flex;justify-content:space-between;gap:24px;align-items:center}.tts-route p{font-size:12px;margin-top:6px}.tts-route-steps{display:flex;gap:14px;align-items:center;white-space:nowrap;font-size:13px}.tts-route-steps b{font-size:10px;color:var(--muted);margin-right:6px}.tts-route-steps i{font-style:normal;color:#9eafa5}.tts-disclosure{padding:0;overflow:hidden}.tts-disclosure summary{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;list-style:none}.tts-disclosure summary::-webkit-details-marker{display:none}.tts-disclosure summary small{display:block;font-size:12px;font-weight:400;margin-top:3px}.tts-disclosure summary>span:last-child{font-size:12px;color:var(--teal)}.tts-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:22px 24px 0;border-top:1px solid var(--line)}.tts-form-grid input{width:100%;min-width:0}.tts-form-footer{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:20px 24px;font-size:12px}.tts-log{background:#142e2b;color:#cee1d7;padding:20px 24px;max-height:280px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.8 Consolas,monospace;margin:0}.tts-foot{display:flex;justify-content:space-between;gap:12px;font-size:12px;color:var(--muted);padding:4px 0 16px}.tts-control,.tts-route,.tts-disclosure{margin-bottom:18px}@media(max-width:1100px){.tts-control,.tts-route{align-items:flex-start;flex-direction:column}.tts-buttons{flex-wrap:wrap}.tts-status-head{align-items:flex-start;flex-direction:column;gap:6px}}@media(max-width:640px){.tts-status-grid,.tts-form-grid{grid-template-columns:1fr}.tts-status-head{flex-direction:row}.tts-status-grid{gap:10px}.tts-status p{margin-top:5px}.tts-foot{flex-direction:column}.tts-local-label{display:none}.tts-form-footer{align-items:flex-start;flex-direction:column}.tts-route-steps{white-space:normal;gap:8px}.tts-view .title-row h1{font-size:23px}}
 
 .tts-control,.tts-status,.tts-route{padding:22px 24px}.tts-control .eyebrow{margin-bottom:8px}.tts-control h2{font-size:21px}.tts-status{min-height:112px}.tts-status-head h3{font-size:14px}.tts-route{min-height:100px}@media(max-width:640px){.tts-control,.tts-status,.tts-route{padding:18px}.tts-status{min-height:90px}}
+/* ==== 本地语音页（2026-10-27 重排）：状态表 + 参数表 + 任务表，单列三段 ==== */
+.tts-view{max-width:1080px}
+.tts-view > .panel{margin-bottom:16px}
+.tts-block{padding:0}
+.tts-block-head{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;padding:18px 22px;border-bottom:1px solid var(--line)}
+.tts-block-head h2{font-size:16px;margin-bottom:3px}
+.tts-block-head p{font-size:12px;color:var(--muted)}
+.tts-block-head > .muted{font-size:11px;white-space:nowrap}
+.tts-block-foot{padding:11px 22px;background:#fafcfb;border-top:1px solid var(--line);font-size:11px;color:var(--muted);display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
+
+/* 服务状态表 */
+.svc-table{display:flex;flex-direction:column}
+.svc-row{display:grid;grid-template-columns:minmax(200px,290px) 104px minmax(0,1fr) auto;align-items:center;gap:18px;padding:14px 22px;border-bottom:1px solid #f0f3f0}
+.svc-row:last-child{border-bottom:0}
+.svc-row:hover{background:#fbfcfb}
+.svc-id{display:flex;align-items:flex-start;gap:10px;min-width:0}
+.svc-id .dot{margin-top:7px}
+.svc-id b{display:block;font-size:13px;font-weight:600;line-height:1.5}
+.svc-id small{display:block;font-size:11px;color:var(--muted);line-height:1.5;margin-top:1px}
+.svc-state{font-size:12px;font-weight:600;white-space:nowrap}
+.svc-state.on{color:var(--teal)}.svc-state.off{color:var(--orange)}.svc-state.unknown{color:var(--muted);font-weight:400}
+.dot.on{background:#44856c}.dot.off{background:#af6054}.dot.unknown{background:#c8d2cc}
+.svc-meta{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;color:var(--muted);min-width:0}
+.svc-meta span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.svc-ops{display:flex;gap:6px;justify-content:flex-end;flex-shrink:0}
+.svc-ops:empty{min-width:0}
+
+/* 翻唱参数 */
+.tts-preset-pick{display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0}
+.tts-preset-pick .button{flex-direction:column;align-items:flex-start;line-height:1.25;padding:5px 12px}
+.tts-preset-pick .button small{font-size:10px;font-weight:400;opacity:.75}
+.tts-param-table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+.tts-param-table th{width:118px;text-align:left;font-weight:400;color:var(--muted);padding:10px 0 10px 22px;white-space:nowrap}
+.tts-param-table td:nth-child(2){width:150px}
+.tts-param-table td{padding:10px 22px 10px 0;border-bottom:1px solid #f0f3f0}
+.tts-param-table td b{font-weight:600}
+.tts-param-table tr:last-child td{border-bottom:0}
+.tts-param-table tr:last-child th{border-bottom:0}
+.tts-param-table td.muted{font-size:11.5px}
+.tts-warn{color:var(--orange)}
+
+/* 最近翻唱 */
+.tts-hist-body{overflow-x:auto;padding:4px 22px 6px}
+.tts-table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+.tts-table th:nth-child(1){width:110px}.tts-table th:nth-child(2){width:96px}.tts-table th:nth-child(3){width:84px}
+.tts-table th:nth-child(4){width:78px}.tts-table th:nth-child(5){width:88px}.tts-table th:nth-child(6){width:84px}
+.tts-table th{text-align:left;font-weight:600;font-size:11px;color:var(--muted);letter-spacing:.03em;padding:12px 14px 8px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+.tts-table td{padding:9px 14px 9px 0;border-bottom:1px solid #f0f3f0;white-space:nowrap}
+.tts-table tr:last-child td{border-bottom:0}
+.tts-table tr.bad td{color:var(--muted)}
+.tts-ok{color:var(--teal);font-weight:600}
+.tts-fail{color:var(--red);font-weight:600;cursor:help}
+.tts-empty{margin:0;padding:16px 0;font-size:12.5px}
+
+.tts-error{margin:0 0 12px;padding:9px 14px;border-radius:6px;background:#fdf3e8;color:var(--orange);font-size:12px}
+@media(max-width:1000px){
+ .svc-row{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"id ops" "state state" "meta meta";gap:6px 14px;padding:14px 18px}
+ .svc-id{grid-area:id}.svc-state{grid-area:state}.svc-meta{grid-area:meta}.svc-ops{grid-area:ops}
+ .tts-block-head{padding:16px 18px;flex-wrap:wrap;gap:10px}
+ .tts-block-foot{padding:11px 18px}
+ .tts-param-table th{padding-left:18px}.tts-param-table td{padding-right:18px}
+ .tts-hist-body{padding:4px 18px 6px}
+}
+@media(max-width:640px){
+ .tts-preset-pick .button small{display:none}
+ .tts-param-table th{width:88px;font-size:11px}
+ .tts-local-label{display:none}
+}
+.svc-head{background:#fafcfb;font-size:10.5px;letter-spacing:.05em;color:var(--muted);padding-top:9px;padding-bottom:9px}
+.svc-head>div{font-weight:600}
+.svc-head:hover{background:#fafcfb}
+@media(max-width:1000px){.svc-head{display:none}}

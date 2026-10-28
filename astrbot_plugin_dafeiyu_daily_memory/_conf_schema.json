@@ -1,0 +1,38 @@
+{
+  "auto_sync": {
+    "description": "后台自动归档",
+    "type": "bool",
+    "default": true,
+    "hint": "从 livingmemory 的 conversations.db 增量搬运原始聊天。纯 sqlite，不消耗 token。"
+  },
+  "sync_interval": {
+    "description": "同步间隔（秒）",
+    "type": "int",
+    "default": 600,
+    "hint": "默认 600 秒。改小只是更及时，成本为 0。"
+  },
+  "inject_profile": {
+    "description": "自动带上当前说话人的档案",
+    "type": "bool",
+    "default": true,
+    "hint": "每次回复前把「当前说话人」的画像与事实挂在用户消息末尾（后缀，不影响前缀缓存），约 100~200 token。关掉后只能靠模型主动调工具查。"
+  },
+  "extract_enabled": {
+    "description": "每天自动提炼人物档案",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后每天凌晨对新增聊天提炼人物事实与画像，走旁路小模型，成本很低。建议先手工 /记忆 提炼 全部 跑通再开。"
+  },
+  "extract_provider_id": {
+    "description": "提炼用的模型",
+    "type": "string",
+    "default": "xiaomi/mimo-v2.6-flash",
+    "hint": "填 Provider ID。不要填群聊主模型（会打乱主模型的前缀缓存）。"
+  },
+  "extract_hour": {
+    "description": "每日提炼时间（小时）",
+    "type": "int",
+    "default": 5,
+    "hint": "默认凌晨 5 点（群里没人说话的时候）。"
+  }
+}

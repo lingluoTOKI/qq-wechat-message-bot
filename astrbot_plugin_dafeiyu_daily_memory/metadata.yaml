@@ -1,0 +1,6 @@
+name: astrbot_plugin_dafeiyu_daily_memory
+display_name: 大肥鱼情景记忆
+desc: 原样归档群聊记录 + 人物档案时间线，支持按关键词/人物全文检索。与 livingmemory 数据完全独立。
+version: v0.1.0
+author: TOKI
+repo: ""

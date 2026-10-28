@@ -3,47 +3,156 @@ const ttsUI={state:null,error:'',busy:'',reading:false,dirty:false,draft:{},upda
 const ttsFields=[['gpt_model_path','GPT 模型权重（.ckpt）'],['gpt_ckpt_path','SoVITS 模型权重（.pth）'],['ref_audio','参考音频（wav）'],['prompt_text','参考音频对应文本'],['gpt_api','合成服务地址'],['gsv_root','GPT-SoVITS 安装目录']];
 const rvcUI={state:null,error:'',busy:''};
 const gsvUI={state:null,error:'',busy:''};
+let coverHistory=[];   // 最近翻唱记录（后端 rvc/history）
 function gsvWebuiPort(){try{return (gsvUI.state&&gsvUI.state.port)||9874;}catch(e){return 9874;}}
 function rvcMsg(){const s=rvcUI.state||{};if(rvcUI.error)return '请确认本地面板服务正在运行（127.0.0.1:8765）。';if(!rvcUI.state)return '加载中。';if(rvcUI.busy==='start')return '正在启动 RVC WebUI（首次约 1 分钟）…';if(rvcUI.busy==='stop')return '正在停止 RVC…';if(s.running)return '进程运行中（PID '+(s.pid||'?')+'），端口 '+(s.port||'?')+(s.ready?' 已监听':' 尚未就绪');return '本机翻唱引擎未启动，点「启动 RVC」拉起 WebUI。';}
 function gsvMsg(){const s=gsvUI.state||{};if(gsvUI.error)return '请确认本地面板服务正在运行（127.0.0.1:8765）。';if(!gsvUI.state)return '加载中。';if(gsvUI.busy==='start')return '正在启动 GPT-SoVITS 面板（首次约 1 分钟，会加载模型）…';if(gsvUI.busy==='stop')return '正在停止面板…';if(s.running)return '面板运行中（PID '+(s.pid||'?')+'），端口 '+(s.port||'?')+(s.ready?' 已可打开':' 尚未就绪');return '合成引擎图形面板未启动，点「启动面板」打开界面（与合成 API 9880 是两套进程）。';}
+function chip(label,value,state,sub){
+ const cls=state===true?'online':state===false?'off':'unknown';
+ return `<span class="tts-chip ${cls}"><b>${esc(label)}</b><em>${esc(value)}</em>${sub?`<i>${esc(sub)}</i>`:''}</span>`;
+}
+function pct(v){return v==null?'—':String(v);}
+function svcSummary(){
+ const s=ttsUI.state||{},rv=rvcUI.state||{},l=s.launch||{};
+ if(!ttsUI.state)return '正在读取本机服务状态…';
+ const ready=!!(s.running&&s.api_ready);
+ if((['starting_api','waiting_api','starting_client','connecting'].includes(l.state)||ttsUI.busy==='start')&&!ready)
+  return l.message||'正在启动本地语音…';
+ if(ttsUI.error)return '读不到本地语音状态，请确认本面板服务在跑（127.0.0.1:8765）。';
+ const miss=[];
+ if(!s.running)miss.push('本地语音客户端');
+ if(!s.api_ready)miss.push('合成 API');
+ if(!s.server_online)miss.push('机器人连接');
+ if(rvcUI.state&&!rv.ready)miss.push('翻唱引擎');
+ if(!miss.length)return '四路都在线：语音、合成、翻唱、机器人连接正常，群里可以直接用。';
+ return '待处理：'+miss.join('、')+'未就绪。';
+}
+function svcRow(o){
+ return `<div class="svc-row">
+  <div class="svc-id"><span class="dot ${o.tone}"></span><div><b>${esc(o.name)}</b><small>${esc(o.desc||'')}</small></div></div>
+  <div class="svc-state ${o.tone}">${esc(o.state)}</div>
+  <div class="svc-meta">${o.meta||''}</div>
+  <div class="svc-ops">${o.ops||''}</div>
+ </div>`;
+}
 function renderTTS(){
- const s=ttsUI.state||{},l=s.launch||{},waiting=['starting_api','waiting_api','starting_client','connecting'].includes(l.state)||ttsUI.busy==='start';
- return `<div class="tts-view">${title('VOICE / 机器人语音','让大肥鱼，用熟悉的声音说话','本机合成，连接云端机器人。语音状态与控制集中在这里。',`<span class="tts-local-label">${icon('entry')} 本机运行</span>`)}
- <section class="panel tts-control"><div><div class="eyebrow">本地语音服务</div><h2 id="ttsHeading">${ttsUI.error?'状态暂不可用':!ttsUI.state?'正在读取状态':s.running&&s.api_ready&&s.server_online?'语音链路已就绪':waiting?'正在启动语音服务':l.state==='error'?'启动未完成':s.running?'客户端运行中':'本地语音未启动'}</h2><p class="muted" id="ttsLaunch">${esc(l.message||'一键启动会准备合成服务，再连接机器人。')}</p></div><div class="tts-buttons"><button class="button primary" data-tts="start" ${ttsUI.busy||waiting||s.running&&s.api_ready?'disabled':''}>${waiting?'启动中…':'启动本地语音'}</button><button class="button" data-tts="stop" ${ttsUI.busy||!s.running&&!s.api_running?'disabled':''}>停止本地语音</button></div></section>
+ const s=ttsUI.state||{},l=s.launch||{};
+ const ready=!!(s.running&&s.api_ready);
+ const waiting=(['starting_api','waiting_api','starting_client','connecting'].includes(l.state)||ttsUI.busy==='start')&&!ready;
+ const rv=rvcUI.state||{},gv=gsvUI.state||{},eff=rv.effective||{},ps=rv.presets||{},pv=ps.presets||{};
+ const raw=s.server_raw||{};
+ const pending=raw.pending==null?'—':raw.pending;
+ const cur=eff.preset||'',curName=eff.preset_name||'手动参数',clamps=eff.clamped||[];
+ const tone=v=>v==null?'unknown':v?'on':'off';
+ const val=(k,d)=>eff[k]!=null?eff[k]:(rv[k]!=null?rv[k]:d);
+ const file=p=>String(p||'—').split(/[\\/]/).pop();
+ const cfg=s.config||{};
+
+ const rowClient=svcRow({
+  name:'本地语音（客户端 + 合成 API）',desc:'群消息朗读走这条链路',
+  tone:tone(ttsUI.state?!!s.running:null),
+  state:!ttsUI.state?'读取中':s.running?(s.api_ready?'运行中':'已启动 · API 未就绪'):'未启动',
+  meta:`${s.running?'<span>PID '+esc(s.pid||'—')+'</span>':''}<span title="${esc(cfg.gpt_api||'')}">${esc(cfg.gpt_api||'合成地址未配置')}</span><span title="${esc(cfg.ref_audio||'')}">${esc(file(cfg.ref_audio))}</span>`,
+  ops:`<button class="button ${s.running||s.api_running?'':'primary'} small" data-tts="start" ${ttsUI.busy||waiting||(s.running&&s.api_ready)?'disabled':''}>${waiting?'启动中…':'启动'}</button><button class="button small" data-tts="stop" ${ttsUI.busy||(!s.running&&!s.api_running)?'disabled':''}>停止</button>`
+ });
+ const rowGsv=svcRow({
+  name:'GPT-SoVITS 面板',desc:'训练与试听用的图形界面，与合成 API 分开',
+  tone:tone(gsvUI.state?!!gv.running:null),
+  state:!gsvUI.state?'读取中':gv.running?(gv.ready?'运行中':'启动中…'):'未启动',
+  meta:`<span>PID ${esc(gv.pid||'—')}</span><span>端口 ${esc(gv.port||gsvWebuiPort())}</span>`,
+  ops:`<button class="button ${gv.running?'':'primary'} small" data-gsv="start" ${gsvUI.busy||(gv.running&&gv.ready)?'disabled':''}>${gsvUI.busy==='start'?'启动中…':'启动'}</button><button class="button small" data-gsv="stop" ${gsvUI.busy||!gv.running?'disabled':''}>停止</button><a class="button small" target="_blank" rel="noopener" href="http://127.0.0.1:${gsvWebuiPort()}">打开 ↗</a>`
+ });
+ const rowRvc=svcRow({
+  name:'RVC 翻唱引擎',desc:'群里的点歌在这里换声',
+  tone:tone(rvcUI.state?!!rv.ready:null),
+  state:!rvcUI.state?'读取中':rv.running?(rv.ready?'已就绪':'启动中…'):'未运行',
+  meta:`<span>PID ${esc(rv.pid||'—')}</span><span>端口 ${esc(rv.port||7899)}${rv.ready?' 已监听':''}</span><span title="${esc(rv.model||'')}">${esc(rv.model||'无模型')}</span>`,
+  ops:`<button class="button ${rv.running?'':'primary'} small" data-rvc="start" ${rvcUI.busy||(rv.running&&rv.ready)?'disabled':''}>${rvcUI.busy==='start'?'启动中…':'启动'}</button><button class="button small" data-rvc="stop" ${rvcUI.busy||!rv.running?'disabled':''}>停止</button><a class="button small" target="_blank" rel="noopener" href="http://127.0.0.1:${rv.port||7899}">打开 ↗</a>`
+ });
+ const rowBot=svcRow({
+  name:'云端机器人连接',desc:'本机从服务器队列领任务',
+  tone:tone(ttsUI.state?!!s.server_online:null),
+  state:!ttsUI.state?'读取中':s.server_online?'在线':'离线',
+  meta:`<span>待处理 ${esc(pending)}</span><span>通道 ${esc(raw.via||'—')}</span>`,
+  ops:''
+ });
+
+ const cell=(k,d)=>esc(val(k,d));
+ const paramRows=[
+  ['检索比例',cell('index_rate','—'),'越像洛天依；太高会把音高一起带偏'],
+  ['辅音保护',cell('protect','—'),'防止气声、齿音被咬坏'],
+  ['响度融合',cell('rms_mix_rate','—'),'越大越贴输出包络，动态更平'],
+  ['音高算法',cell('f0_method','—'),'rmvpe 最稳；fcpe 低频偏差大'],
+  ['变调',esc((val('pitch',0))>0?'+':'')+cell('pitch','0')+' 半音','走 rubberband 预处理，RVC 内部恒为 0'],
+  ['推理后端',cell('backend','—'),'gradio 走 WebUI；direct 直调不依赖常驻'],
+  ['音色模型',esc(rv.model||'—'),'assets/weights 下的 .pth'],
+  ['检索索引',esc(file(rv.index)),'与模型自动匹配'],
+ ].map(([a,b,c])=>`<tr><th>${a}</th><td><b>${b}</b></td><td class="muted">${c}</td></tr>`).join('');
+
+ return `<div class="tts-view">${title('VOICE / 机器人语音','让大肥鱼，用熟悉的声音说话','本机合成与翻唱，连接云端机器人。状态、参数、最近任务都在这一页。',`<span class="tts-local-label">${icon('entry')} 本机运行</span>`)}
  <p id="ttsError" class="tts-error" role="status" ${ttsUI.error?'':'hidden'}>${esc(ttsUI.error)}</p>
- <div class="tts-status-grid">${[['client','本地客户端','负责接收机器人的语音任务',s.running],['engine','合成引擎','GPT-SoVITS · 本机生成声音',s.api_ready],['server','机器人连接','服务器能否连接到本机客户端',s.server_online]].map(([key,label,desc,on])=>`<section class="panel tts-status"><div class="tts-status-head"><h3>${label}</h3><span id="ttsState-${key}" class="tts-badge ${ttsUI.error?'unknown':on?'online':''}">${ttsUI.error?'待确认':!ttsUI.state?'检测中':on?'已就绪':'未就绪'}</span></div><p>${desc}</p></section>`).join('')}</div>
- <section class="panel tts-control" style="border-left-color:#a66a41"><div><div class="eyebrow">本地翻唱引擎（RVC）</div><h2 id="rvcHeading">${rvcUI.error?'状态暂不可用':!rvcUI.state?'正在读取状态':rvcUI.state.running&&rvcUI.state.ready?'翻唱引擎已就绪':rvcUI.state.running?'RVC 启动中…':'RVC 未运行'}</h2><p class="muted" id="rvcMsg">${esc(rvcMsg())}</p></div><div class="tts-buttons"><button class="button primary" data-rvc="start" ${rvcUI.busy||(rvcUI.state&&rvcUI.state.running&&rvcUI.state.ready)?'disabled':''}>${rvcUI.busy==='start'?'启动中…':'启动 RVC'}</button><button class="button" data-rvc="stop" ${rvcUI.busy||!(rvcUI.state&&rvcUI.state.running)?'disabled':''}>停止 RVC</button></div></section>
- <section class="panel tts-control" style="border-left-color:#7a5cc4"><div><div class="eyebrow">合成引擎面板（GPT-SoVITS）</div><h2 id="gsvHeading">${gsvUI.error?'状态暂不可用':!gsvUI.state?'正在读取状态':gsvUI.state.running&&gsvUI.state.ready?'面板已就绪':gsvUI.state.running?'面板启动中…':'面板未运行'}</h2><p class="muted" id="gsvMsg">${esc(gsvMsg())}</p></div><div class="tts-buttons"><button class="button primary" data-gsv="start" ${gsvUI.busy||(gsvUI.state&&gsvUI.state.running&&gsvUI.state.ready)?'disabled':''}>${gsvUI.busy==='start'?'启动中…':'启动面板'}</button><button class="button" data-gsv="stop" ${gsvUI.busy||!(gsvUI.state&&gsvUI.state.running)?'disabled':''}>停止面板</button></div></section>
  <p id="gsvError" class="tts-error" role="status" ${gsvUI.error?'':'hidden'}>${esc(gsvUI.error)}</p>
  <p id="rvcError" class="tts-error" role="status" ${rvcUI.error?'':'hidden'}>${esc(rvcUI.error)}</p>
- <div class="tts-status-grid">${[['proc','翻唱进程','本地 RVC WebUI 进程（PID '+(rvcUI.state?rvcUI.state.pid||'-':'-')+'）',rvcUI.state&&rvcUI.state.running],['port','翻唱端口 7899','RVC WebUI 端口，翻唱链路调用它',rvcUI.state&&rvcUI.state.ready]].map(([key,label,desc,on])=>`<section class="panel tts-status"><div class="tts-status-head"><h3>${label}</h3><span id="rvcState-${key}" class="tts-badge ${rvcUI.error?'unknown':on?'online':''}">${rvcUI.error?'待确认':!rvcUI.state?'检测中':on?'已就绪':'未就绪'}</span></div><p>${desc}</p></section>`).join('')}</div>
- <section class="panel tts-route"><div><h3>引擎端口直达</h3><p class="muted">在本机新标签打开对应 WebUI（需先点上方「启动面板 / 启动 RVC」）。GPT-SoVITS 面板在 ${gsvWebuiPort()}，RVC 在 7899。</p></div><div class="tts-route-steps"><a class="button" target="_blank" rel="noopener" href="http://127.0.0.1:${gsvWebuiPort()}">GPT-SoVITS ↗</a><a class="button" target="_blank" rel="noopener" href="http://127.0.0.1:7899">RVC ↗</a></div></section>
- <section class="panel tts-route"><div><h3>语音备用通路</h3><p class="muted">本地不可用时按现有配置尝试备用服务，实际是否可用以调用结果为准。</p></div><div class="tts-route-steps"><span><b>01</b> 本机合成</span><i>→</i><span><b>02</b> MiMo</span><i>→</i><span><b>03</b> Edge TTS</span></div></section>
+
+ <section class="panel tts-block">
+  <div class="tts-block-head"><div><h2>服务状态</h2><p>${esc(svcSummary())}</p></div><span class="muted" id="ttsTime">${ttsUI.updated?'更新于 '+ttsUI.updated.toLocaleTimeString('zh-CN'):'等待首次检查'}</span></div>
+  <div class="svc-table"><div class="svc-row svc-head"><div>服务</div><div>状态</div><div>详情</div><div>操作</div></div>${rowClient}${rowGsv}${rowRvc}${rowBot}</div>
+  <div class="tts-block-foot">链路：群消息 → 云端插件 → 服务器队列 → 本机客户端 · 电脑关机或休眠后本机服务不可用</div>
+ </section>
+
+ <section class="panel tts-block">
+  <div class="tts-block-head"><div><h2>翻唱参数</h2><p id="presetHeading">${cur?'当前套用预设 '+esc(cur)+' · '+esc(curName):'当前使用手动参数，未套预设'}</p></div>
+   <div class="tts-preset-pick" id="presetPick">${['A','B'].map(n=>`<button class="button small ${cur===n?'primary':''}" data-preset="${n}" ${cur===n?'disabled':''}>预设 ${n}${(pv[n]&&pv[n].name)?'<small>'+esc(pv[n].name)+'</small>':''}</button>`).join('')}<button class="button small" data-preset="" ${!cur?'disabled':''}>不用预设</button></div></div>
+  <table class="tts-param-table" id="presetParams"><tbody>${paramRows}</tbody></table>
+  <div class="tts-block-foot">${cur?'参数来自预设文件 '+esc(file(ps.file)):'预设文件 '+esc(file(ps.file))} · 切换后下一次翻唱立即生效，无需重启客户端
+  ${clamps.length?`<span class="tts-warn" id="presetWarn">有 ${clamps.length} 项超出软约束已夹回：${esc(clamps.map(c=>c.key).join('、'))}</span>`:'<span class="tts-warn" id="presetWarn" hidden></span>'}</div>
+ </section>
+
+ <section class="panel tts-block">
+  <div class="tts-block-head"><div><h2>最近翻唱</h2><p>本机实际跑过的任务</p></div><span class="muted" id="histCount">${coverHistory.length?'最近 '+coverHistory.length+' 条':'暂无记录'}</span></div>
+  <div class="tts-hist-body" id="histBody">${renderCoverHistory()}</div>
+ </section>
+
  <details class="panel tts-disclosure" id="ttsConfig" ${ttsUI.configOpen?'open':''}><summary><span><strong>音色与模型配置</strong><small>已配置好时无需修改</small></span><span>配置 ›</span></summary><form id="ttsConfigForm"><div class="tts-form-grid">${ttsFields.map(([key,label])=>`<label class="field">${label}<input name="${key}" value="${esc(ttsUI.draft[key]??s.config?.[key]??'')}" autocomplete="off" spellcheck="false"></label>`).join('')}</div><div class="tts-form-footer"><span class="muted" id="ttsSaveHint">${ttsUI.dirty?'有尚未保存的修改':'模型与音频路径保存在本机'}</span><button class="button primary" type="submit" ${ttsUI.busy?'disabled':''}>保存配置</button></div></form></details>
  <details class="panel tts-disclosure" id="ttsLogs" ${ttsUI.logsOpen?'open':''}><summary><span><strong>诊断日志</strong><small>连接或合成异常时查看</small></span><span>展开 ›</span></summary><pre class="tts-log" id="ttsLog">${esc(s.error_log||'暂无错误日志')}</pre></details>
- <div class="tts-foot"><span id="ttsTime">${ttsUI.updated?'语音状态更新于 '+ttsUI.updated.toLocaleTimeString('zh-CN'):'等待首次状态检查'}</span><span>电脑关闭或休眠后，本地合成不可用</span></div></div>`;
+</div>`;
+}
+function renderCoverHistory(){
+ if(!coverHistory.length)return '<p class="muted tts-empty">还没有跑过翻唱。在群里发一首歌试试，这里会记下时长、耗时和实际用的预设。</p>';
+ const rows=coverHistory.slice(0,10).map(r=>{
+  const t=new Date((r.ts||0)*1000),hh=String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0');
+  const date=(t.getMonth()+1)+'/'+t.getDate();
+  return `<tr class="${r.ok?'':'bad'}"><td>${date} ${hh}</td><td>${r.seconds?Math.round(r.seconds)+'s':'—'}</td><td>${r.cost?Math.round(r.cost)+'s':'—'}</td><td>${r.preset?esc(r.preset):'手动'}</td><td>${r.backend==='direct'?'直调':'WebUI'}</td><td>${r.out_kb?Math.round(r.out_kb/1024*10)/10+'MB':'—'}</td><td>${r.ok?'<span class="tts-ok">成功</span>':'<span class="tts-fail" title="'+esc(r.error||'')+'">失败</span>'}</td></tr>`;
+ }).join('');
+ return `<table class="tts-table"><thead><tr><th>时间</th><th>原曲</th><th>耗时</th><th>预设</th><th>后端</th><th>成品</th><th>结果</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function repaintTTS(){
+ if(typeof page==='undefined'||page!=='tts')return;
+ // 有未保存的配置输入时不重绘，避免抢焦点/吞掉用户刚打的字
+ if(ttsUI.dirty)return;
+ const el=document.querySelector('.tts-view');if(!el)return;
+ const box=document.createElement('div');box.innerHTML=renderTTS();
+ const next=box.firstElementChild;if(!next)return;
+ const scroller=document.getElementById('main');
+ const top=scroller?scroller.scrollTop:0;
+ el.replaceWith(next);
+ if(scroller)scroller.scrollTop=top;
+ hydrate();
 }
 async function refreshTTS(){
- if(ttsUI.reading||typeof page==='undefined'||page!=='tts'||document.hidden)return;
+ if(ttsUI.reading||typeof page==='undefined'||page!=='tts')return;
  ttsUI.reading=true;
  try{ttsUI.state=await api('tts/status');ttsUI.updated=new Date();ttsUI.error='';}
  catch(e){ttsUI.error='无法读取本地语音状态：'+e.message;}
  finally{ttsUI.reading=false;}
- if(page!=='tts')return;
- // Update only status nodes, preserving focus, unsaved fields and expanded sections.
- const template=document.createElement('template');template.innerHTML=renderTTS();
- for(const id of ['ttsHeading','ttsLaunch','ttsError','ttsState-client','ttsState-engine','ttsState-server','ttsLog','ttsTime']){
-  const old=document.getElementById(id),fresh=template.content.querySelector('#'+id);if(old&&fresh){old.textContent=fresh.textContent;old.className=fresh.className;old.hidden=fresh.hidden;}
- }
- for(const action of ['start','stop']){const old=document.querySelector(`[data-tts="${action}"]`),fresh=template.content.querySelector(`[data-tts="${action}"]`);if(old&&fresh){old.disabled=fresh.disabled;old.textContent=fresh.textContent;}}
- if(!ttsUI.dirty)for(const [key] of ttsFields){const input=document.querySelector(`#ttsConfigForm [name="${key}"]`);if(input&&document.activeElement!==input)input.value=ttsUI.state?.config?.[key]||'';}
+ repaintTTS();
 }
 document.addEventListener('input',e=>{if(e.target.closest('#ttsConfigForm')){ttsUI.dirty=true;ttsUI.draft[e.target.name]=e.target.value;const n=document.getElementById('ttsSaveHint');if(n)n.textContent='有尚未保存的修改';}});
 document.addEventListener('toggle',e=>{if(e.target.id==='ttsConfig')ttsUI.configOpen=e.target.open;if(e.target.id==='ttsLogs')ttsUI.logsOpen=e.target.open;},true);
 document.addEventListener('click',async e=>{
  const b=e.target.closest('[data-tts]');if(!b)return;
  if(ttsUI.busy)return;const action=b.dataset.tts;ttsUI.busy=action;b.disabled=true;
- try{const result=await api('tts/'+action,{});toast(result.message||'操作已提交');}catch(err){toast(err.message);}finally{ttsUI.busy='';await refreshTTS();}
+ try{const result=await api('tts/'+action,{});toast(result.message||'操作已提交');}catch(err){toast(err.message);}finally{ttsUI.busy='';await refreshTTSAll();}
 });
 document.addEventListener('submit',async e=>{
  if(e.target.id!=='ttsConfigForm')return;e.preventDefault();if(ttsUI.busy)return;
@@ -51,44 +160,54 @@ document.addEventListener('submit',async e=>{
  try{const r=await api('tts/config',payload);if(JSON.stringify(Object.fromEntries(new FormData(e.target)))===before){ttsUI.dirty=false;ttsUI.draft={};}toast(r.message||'配置已保存');document.getElementById('ttsSaveHint').textContent=ttsUI.dirty?'仍有尚未保存的修改':'配置已保存';}catch(err){toast('保存失败：'+err.message);}finally{ttsUI.busy='';b.disabled=false;}
 });
 async function refreshRVC(){
- if(typeof page==='undefined'||page!=='tts'||document.hidden)return;
+ if(typeof page==='undefined'||page!=='tts')return;
  try{rvcUI.state=await api('rvc/status');rvcUI.error='';}
  catch(e){rvcUI.error='无法读取 RVC 状态：'+e.message;}
- if(page!=='tts')return;
- const template=document.createElement('template');template.innerHTML=renderTTS();
- for(const id of ['rvcHeading','rvcMsg','rvcError','rvcState-proc','rvcState-port']){
-  const old=document.getElementById(id),fresh=template.content.querySelector('#'+id);if(old&&fresh){old.textContent=fresh.textContent;old.className=fresh.className;old.hidden=fresh.hidden;}
- }
- for(const action of ['start','stop']){const old=document.querySelector('[data-rvc="'+action+'"]'),fresh=template.content.querySelector('[data-rvc="'+action+'"]');if(old&&fresh){old.disabled=fresh.disabled;old.textContent=fresh.textContent;}}
+ repaintTTS();
 }
 document.addEventListener('click',async e=>{
  const b=e.target.closest('[data-rvc]');if(!b)return;
  if(rvcUI.busy)return;const action=b.dataset.rvc;rvcUI.busy=action;b.disabled=true;
- try{const result=await api('rvc/'+action,{});toast(result.message||'操作已提交');}catch(err){toast(err.message);}finally{rvcUI.busy='';await refreshRVC();}
+ try{const result=await api('rvc/'+action,{});toast(result.message||'操作已提交');}catch(err){toast(err.message);}finally{rvcUI.busy='';await refreshTTSAll();}
 });
 async function refreshGSV(){
- if(typeof page==='undefined'||page!=='tts'||document.hidden)return;
+ if(typeof page==='undefined'||page!=='tts')return;
  try{gsvUI.state=await api('gsv/status');gsvUI.error='';}
  catch(e){gsvUI.error='无法读取 GPT-SoVITS 面板状态：'+e.message;}
- if(page!=='tts')return;
- const template=document.createElement('template');template.innerHTML=renderTTS();
- for(const id of ['gsvHeading','gsvMsg','gsvError']){
-  const old=document.getElementById(id),fresh=template.content.querySelector('#'+id);if(old&&fresh){old.textContent=fresh.textContent;old.className=fresh.className;old.hidden=fresh.hidden;}
- }
- for(const action of ['start','stop']){const old=document.querySelector('[data-gsv="'+action+'"]'),fresh=template.content.querySelector('[data-gsv="'+action+'"]');if(old&&fresh){old.disabled=fresh.disabled;old.textContent=fresh.textContent;}}
+ repaintTTS();
 }
 document.addEventListener('click',async e=>{
  const b=e.target.closest('[data-gsv]');if(!b)return;
  if(gsvUI.busy)return;const action=b.dataset.gsv;gsvUI.busy=action;b.disabled=true;
- try{const result=await api('gsv/'+action,{});toast(result.message||'操作已提交');}catch(err){toast(err.message);}finally{gsvUI.busy='';await refreshGSV();}
+ try{const result=await api('gsv/'+action,{});toast(result.message||'操作已提交');}catch(err){toast(err.message);}finally{gsvUI.busy='';await refreshTTSAll();}
+});
+async function refreshCoverHistory(){
+ if(typeof page==='undefined'||page!=='tts')return;
+ try{const r=await api('rvc/history?limit=20');coverHistory=(r&&r.items)||[];}
+ catch(e){coverHistory=[];}
+ const body=document.getElementById('histBody');if(body)body.innerHTML=renderCoverHistory();
+ const n=document.getElementById('histCount');if(n)n.textContent=coverHistory.length?'最近 '+coverHistory.length+' 条':'暂无记录';
+}
+async function refreshTTSAll(){
+ await Promise.all([refreshTTS(),refreshRVC(),refreshGSV()]);
+ await refreshCoverHistory();
+}
+// 预设切换：写 config.json 的 rvc_preset，客户端下次任务自动读取生效
+document.addEventListener('click',async e=>{
+ const b=e.target.closest('[data-preset]');if(!b)return;
+ if(rvcUI.busy)return;
+ rvcUI.busy='preset';b.disabled=true;
+ try{const r=await api('rvc/preset',{preset:b.dataset.preset});toast(r.message||'预设已切换');}catch(err){toast('切换失败：'+err.message);}finally{rvcUI.busy='';await refreshRVC();}
 });
 document.addEventListener('DOMContentLoaded',()=>{
  paths.tts='<path d="M5 9v6h4l5 4V5L9 9H5zM18 8a7 7 0 0 1 0 8M21 5a11 11 0 0 1 0 14"/>';
- const previousGo=go;go=function(next){previousGo(next);if(page==='tts'){refreshTTS();refreshRVC();refreshGSV();}};
- const oldRefresh=document.getElementById('refresh').onclick;document.getElementById('refresh').onclick=function(e){if(page==='tts'){refreshTTS();refreshRVC();refreshGSV();return;}return oldRefresh?.call(this,e);};
- renderNav();if(page==='tts'){refreshTTS();refreshRVC();refreshGSV();}
+ const previousGo=go;go=function(next){previousGo(next);if(page==='tts'){refreshTTSAll();}};
+ const oldRefresh=document.getElementById('refresh').onclick;document.getElementById('refresh').onclick=function(e){if(page==='tts'){refreshTTSAll();return;}return oldRefresh?.call(this,e);};
+ renderNav();if(page==='tts'){refreshTTSAll();}
 });
-setInterval(()=>{if(typeof page!=='undefined'&&page==='tts'&&!document.hidden){refreshTTS();refreshRVC();refreshGSV();}},5000);
+// 从后台切回来立刻刷一次，别干等 5 秒定时器
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&typeof page!=='undefined'&&page==='tts')refreshTTSAll();});
+setInterval(()=>{if(typeof page!=='undefined'&&page==='tts'&&!document.hidden){refreshTTSAll();}},5000);
 
 'use strict';
 // Local workbench: authenticated operations; raw chats and credentials stay on the host.

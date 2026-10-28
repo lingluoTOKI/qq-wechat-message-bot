@@ -25,6 +25,41 @@ import urllib.request
 from http.cookiejar import CookieJar
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+# 本机自调用（127.0.0.1 的隧道 / API / 客户端）一律绕过系统代理。
+# 踩过的坑：机器上装了代理工具时 HTTP_PROXY 会把 127.0.0.1 的请求也送进代理
+# （urllib.proxy_bypass('127.0.0.1') 返回 False），结果隧道明明通着，
+# 面板却报"机器人连接 离线"，客户端也会误判"没有可用的服务器通道"。
+os.environ['no_proxy'] = '127.0.0.1,localhost,::1'
+os.environ['NO_PROXY'] = '127.0.0.1,localhost,::1'
+# Windows 下 urllib.request.proxy_bypass 只读注册表 ProxyOverride、不认 no_proxy，
+# 所以还要把判断包一层，否则 127.0.0.1 的隧道请求照样被送进代理。
+_orig_proxy_bypass = urllib.request.proxy_bypass
+
+
+def _bypass_local(host):
+    if not host:
+        return True
+    h = str(host).split(':')[0].strip('[]')
+    if h in ('127.0.0.1', 'localhost', '::1') or h.startswith('127.'):
+        return True
+    try:
+        return _orig_proxy_bypass(host)
+    except Exception:
+        return False
+
+
+urllib.request.proxy_bypass = _bypass_local
+
+# stdout/stderr 编码兜底：被 DETACHED_PROCESS 起、输出重定向到文件时，
+# Python 按系统代码页（中文 Windows = GBK）编码，print 里一出现中文就抛
+# UnicodeEncodeError 直接退出 —— 表现是"面板起来几秒就没了"。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 PANEL_PORT = 8765
 API_PORT = 8080          # 服务器端面板 API（经隧道映射到本地）
 UPSTREAM = "http://127.0.0.1:%d" % API_PORT
@@ -52,6 +87,23 @@ TTS_API_ERRLOG = LOCAL_TTS_DIR / 'gsv.err.log'
 DEFAULT_GSV_ROOT = r'F:\github\GPT-SoVITS-v2pro-20250604'
 TTS_LAUNCH = {'state': 'idle', 'message': ''}
 TTS_LAUNCH_LOCK = threading.Lock()
+# 自动自愈开关：用户点「启动」置 True（看门狗会自愈），点「停止」置 False（不再自动拉）
+TTS_AUTO = {'enabled': True, 'last_restart': 0.0, 'offline': 0}
+# 客户端干活标记：local_tts_client.py 处理任务期间会写这个文件，看门狗据此不重启
+TTS_BUSY_FILE = LOCAL_TTS_DIR / '.busy'
+
+
+def _tts_busy():
+    """客户端是否正在处理任务。返回 ''=空闲，否则返回标记内容。"""
+    try:
+        if not TTS_BUSY_FILE.exists():
+            return ''
+        age = time.time() - TTS_BUSY_FILE.stat().st_mtime
+        if age > 1500:          # 超过 25 分钟视为残留（客户端被强杀留下的）
+            return ''
+        return TTS_BUSY_FILE.read_text(encoding='utf-8', errors='ignore').strip() or 'busy'
+    except Exception:
+        return ''
 
 # ---- 本地 RVC（翻唱引擎 @ 本机 7899）----
 RVC_ROOT = Path(r'F:\github\RVC20260718Nvidia')  # 整合包根目录（webui.py 在这里）
@@ -346,6 +398,8 @@ def _tts_launch_worker():
 
 def _tts_start_client():
     """对外入口：立即返回，后台线程负责「先 API 后客户端」。"""
+    TTS_AUTO['enabled'] = True
+    TTS_AUTO['offline'] = 0
     # 客户端/RVC 走 SSH 隧道（32000）。先确保隧道在线，否则连不上服务器。
     if not _tunnel_alive():
         _tunnel_start()
@@ -363,6 +417,7 @@ def _tts_start_client():
 
 
 def _tts_stop_client():
+    TTS_AUTO['enabled'] = False
     running, pid = _tts_client_running()
     if not running:
         try:
@@ -397,6 +452,75 @@ def _tts_stop_client():
     TTS_LAUNCH.update(state='idle', message='已停止')
     return {'ok': True, 'state': 'stopped',
             'message': '客户端已停止（PID %d）%s' % (pid, api_msg)}
+
+
+def _kill_client_only(pid):
+    """只杀客户端进程，不碰 GPT-SoVITS（用于重启挂死的客户端）。"""
+    try:
+        subprocess.run(['taskkill', '/PID', str(pid), '/T', '/F'],
+                       capture_output=True, text=True, errors='replace', timeout=15)
+    except Exception:
+        pass
+    try:
+        TTS_PIDFILE.unlink()
+    except Exception:
+        pass
+
+
+def _tts_watchdog():
+    """后台自愈线程（每 30 秒巡检本地语音链路）：
+
+      1) 客户端进程死了  -> 自动重新拉起（GPT-SoVITS 没起会一并拉起）
+      2) 客户端活着但连不上服务器 持续约 150 秒 -> 判为挂死，轻量重启客户端
+      3) 客户端在线但 GPT-SoVITS 未就绪 -> 尝试拉起 API
+
+    仅在 TTS_AUTO['enabled'] 为 True 时自愈；
+    用户手动点「停止」会置 False，之后不再自动拉（想恢复再点「启动」）。
+    重启之间有 120 秒冷却，避免抖动/风暴。
+    """
+    time.sleep(20)  # 面板启动缓冲，别和隧道初始化抢
+    while True:
+        try:
+            if TTS_AUTO.get('enabled'):
+                running, pid = _tts_client_running()
+                now = time.time()
+                cool = (now - TTS_AUTO.get('last_restart', 0)) >= 120
+                if not running:
+                    if cool:
+                        print('[watchdog] 客户端未运行，自动拉起…', flush=True)
+                        TTS_AUTO['last_restart'] = now
+                        TTS_AUTO['offline'] = 0
+                        _tts_start_client()
+                else:
+                    online, _raw = _tts_server_online()
+                    if online:
+                        TTS_AUTO['offline'] = 0
+                        if not _gsv_ready() and cool:
+                            print('[watchdog] GPT-SoVITS 未就绪，尝试拉起…', flush=True)
+                            TTS_AUTO['last_restart'] = now
+                            _gsv_start()
+                    else:
+                        # 客户端正在干活（长翻唱 3~5 分钟不 poll）时绝不重启，
+                        # 否则会把它正干到一半的任务杀掉、结果回传不了。
+                        busy = _tts_busy()
+                        if busy:
+                            TTS_AUTO['offline'] = 0
+                        else:
+                            TTS_AUTO['offline'] = TTS_AUTO.get('offline', 0) + 1
+                            if TTS_AUTO['offline'] >= 5 and cool:
+                                print('[watchdog] 客户端在线但连不上服务器 ~%d 秒，重启客户端…'
+                                      % (TTS_AUTO['offline'] * 30), flush=True)
+                                TTS_AUTO['offline'] = 0
+                                TTS_AUTO['last_restart'] = now
+                                _kill_client_only(pid)
+                                time.sleep(2)
+                                _tts_start_client()
+        except Exception as e:
+            try:
+                print('[watchdog] 巡检异常: %s' % type(e).__name__, flush=True)
+            except Exception:
+                pass
+        time.sleep(30)
 
 
 def _tts_status():
@@ -523,11 +647,143 @@ def _rvc_stop():
     return {'ok': True, 'state': 'stopped', 'message': 'RVC 已停止（PID %d）' % pid}
 
 
+def _rvc_presets_info():
+    """读 rvc_presets.json，返回 {路径, 约束, 各预设摘要}。
+
+    唯一事实来源在 RVC 整合包里的 rvc_presets.json（客户端也读它），
+    面板只做展示与写入 config.json 的 rvc_preset，不复制一份参数。
+    """
+    try:
+        cfg = _tts_cfg()
+    except Exception:
+        cfg = {}
+    path = str(cfg.get('rvc_presets_file') or '')
+    if not path:
+        path = str(RVC_ROOT / 'rvc_presets.json')
+    info = {'file': path, 'exists': False, 'presets': {}, 'constraints': {}}
+    try:
+        data = json.loads(Path(path).read_text(encoding='utf-8'))
+    except Exception as e:
+        info['error'] = '%s: %s' % (type(e).__name__, str(e)[:120])
+        return info
+    info['exists'] = True
+    info['constraints'] = data.get('constraints') or {}
+    for name, p in (data.get('presets') or {}).items():
+        if not isinstance(p, dict):
+            continue
+        info['presets'][name] = {
+            'name': p.get('name') or name,
+            'desc': p.get('desc') or p.get('description') or '',
+            'index_rate': p.get('index_rate'),
+            'protect': p.get('protect'),
+            'rms_mix_rate': p.get('rms_mix_rate'),
+            'f0_method': p.get('f0_method'),
+            'f0_up_key': p.get('f0_up_key'),
+        }
+    return info
+
+
+def _rvc_effective(cfg, presets):
+    """算出「下一次翻唱实际会用到的参数」——面板要显示真实生效值，
+    不能只显示 config.json 里那半截（预设会盖掉默认值）。"""
+    keys = ('index_rate', 'protect', 'rms_mix_rate', 'f0_method', 'resample_sr')
+    eff = {}
+    for k in keys:
+        v = cfg.get('rvc_' + k)
+        if v is not None:
+            eff[k] = v
+    preset = str(cfg.get('rvc_preset') or '')
+    eff['preset'] = preset
+    chosen = (presets.get('presets') or {}).get(preset) if preset else None
+    if chosen:
+        eff['preset_name'] = chosen.get('name') or preset
+        for k in keys:
+            if chosen.get(k) is not None:
+                eff[k] = chosen[k]
+    else:
+        eff['preset_name'] = ''
+    # 软约束：面板也要标出来，免得用户以为填了 0.9 就生效（客户端会夹回）
+    cons = presets.get('constraints') or {}
+    eff['clamped'] = []
+    for k in ('index_rate', 'protect', 'rms_mix_rate'):
+        rng = cons.get(k) or {}
+        try:
+            lo, hi = float(rng.get('min')), float(rng.get('max'))
+        except (TypeError, ValueError):
+            continue
+        if isinstance(eff.get(k), (int, float)) and not (lo <= eff[k] <= hi):
+            eff['clamped'].append({'key': k, 'value': eff[k], 'min': lo, 'max': hi})
+            eff[k] = min(max(eff[k], lo), hi)
+    allowed = cons.get('f0_method_allowed') or []
+    if allowed and eff.get('f0_method') not in allowed:
+        eff['clamped'].append({'key': 'f0_method', 'value': eff.get('f0_method'),
+                               'allowed': allowed})
+        eff['f0_method'] = allowed[0]
+    return eff
+
+
+def _rvc_set_preset(name):
+    """切换翻唱预设：只改 config.json 的 rvc_preset。
+
+    客户端每次任务都会重读 config.json，所以**不用重启客户端**。
+    """
+    name = str(name or '').strip()
+    if name and not (name in ('A', 'B') or name.lower() in ('auto', 'none', 'default', 'off')):
+        info = _rvc_presets_info()
+        if name not in (info.get('presets') or {}):
+            return {'ok': False, 'error': 'unknown_preset',
+                    'message': '没有这个预设：%s（可选 %s 或留空）'
+                               % (name, '/'.join(sorted((info.get('presets') or {}).keys())) or 'A/B')}
+    if name.lower() in ('auto', 'none', 'default', 'off'):
+        name = ''
+    try:
+        cfg = json.loads(TTS_CONFIG.read_text(encoding='utf-8-sig')) if TTS_CONFIG.exists() else {}
+    except Exception:
+        cfg = {}
+    cfg['rvc_preset'] = name
+    TTS_CONFIG.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding='utf-8')
+    return {'ok': True, 'preset': name,
+            'message': ('已切到预设 %s（下一次翻唱生效，不用重启客户端）' % name)
+                       if name else '已取消预设，改用手动填的参数'}
+
+
+def _cover_history(limit=12):
+    """读客户端写的 cover_history.jsonl（最近 limit 条，新的在前）。"""
+    path = LOCAL_TTS_DIR / 'cover_history.jsonl'
+    rows = []
+    try:
+        if path.exists():
+            for line in path.read_text(encoding='utf-8').splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except Exception:
+                    continue
+    except Exception as e:
+        return {'ok': False, 'error': str(e)[:120], 'items': []}
+    rows.sort(key=lambda r: r.get('ts') or 0, reverse=True)
+    return {'ok': True, 'file': str(path), 'total': len(rows),
+            'items': rows[:max(1, int(limit))]}
+
+
 def _rvc_status():
     pid = _rvc_pid()
     running = _rvc_pid_alive(pid)
+    try:
+        cfg = _tts_cfg()
+    except Exception:
+        cfg = {}
+    presets = _rvc_presets_info()
     return {'ok': True, 'running': running, 'pid': pid if running else 0,
-            'ready': _rvc_ready(), 'port': RVC_PORT, 'root': str(RVC_ROOT)}
+            'ready': _rvc_ready(), 'port': RVC_PORT, 'root': str(RVC_ROOT),
+            'backend': str(cfg.get('rvc_backend') or ''),
+            'model': str(cfg.get('rvc_model') or ''),
+            'index': str(cfg.get('rvc_index') or ''),
+            'pitch_mode': str(cfg.get('rvc_pitch_mode') or 'pre'),
+            'presets': presets,
+            'effective': _rvc_effective(cfg, presets)}
 
 
 # ---- 本地 GPT-SoVITS 图形面板（webui.py）----
@@ -781,6 +1037,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if length:
                         self.rfile.read(length)
                     return self._json(200, _rvc_stop())
+                if action == 'preset' and method == 'POST':
+                    length = int(self.headers.get('Content-Length', '0') or 0)
+                    if not 0 < length <= 4096:
+                        self.close_connection = True
+                        return self._json(400, {'error': 'invalid_body_size'})
+                    try:
+                        data = json.loads(self.rfile.read(length) or b'{}')
+                    except Exception:
+                        return self._json(400, {'error': 'invalid_body'})
+                    result = _rvc_set_preset((data or {}).get('preset'))
+                    return self._json(200 if result.get('ok') else 400, result)
+                if action == 'history' and method == 'GET':
+                    limit = 12
+                    if '?' in self.path:
+                        from urllib.parse import parse_qs
+                        try:
+                            limit = int(parse_qs(self.path.split('?', 1)[1]).get('limit', ['12'])[0])
+                        except Exception:
+                            limit = 12
+                    return self._json(200, _cover_history(limit))
                 return self._json(404, {'error': 'unknown_rvc_action'})
             # ---- 本地 GPT-SoVITS 图形面板（webui.py）----
             if path.startswith('/local/gsv/'):
@@ -990,6 +1266,7 @@ def main():
 
     # 隧道看门狗：保证本机 ↔ 服务器的 SSH 隧道始终在线（断了自动重连）。
     threading.Thread(target=_tunnel_watchdog, daemon=True).start()
+    threading.Thread(target=_tts_watchdog, daemon=True).start()
     # 启动即尝试建立一次隧道（若 bat 已建则自动跳过）。
     threading.Thread(target=_tunnel_start, daemon=True).start()
 

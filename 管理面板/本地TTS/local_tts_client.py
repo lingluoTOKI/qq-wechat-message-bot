@@ -16,6 +16,7 @@
 import base64
 import shutil
 import tempfile
+import threading
 import json
 import os
 import re
@@ -26,6 +27,31 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+# ---- 本机请求一律绕过系统代理 ----
+# 踩过的坑：机器上装了代理工具时 HTTP_PROXY 连 127.0.0.1 的请求也一起劫持，
+# 于是隧道明明通着，客户端却一路抛"没有可用的服务器通道"，服务器队列永远没人领 →
+# 群里点歌就回"本机没接单"。
+# 注意：Windows 下 urllib.request.proxy_bypass 只读注册表 ProxyOverride，**不认
+# no_proxy 环境变量**，所以光设环境变量没用，得把这个判断包一层。
+os.environ["no_proxy"] = "127.0.0.1,localhost,::1"
+os.environ["NO_PROXY"] = "127.0.0.1,localhost,::1"
+_orig_proxy_bypass = urllib.request.proxy_bypass
+
+
+def _bypass_local(host):
+    if not host:
+        return True
+    h = str(host).split(":")[0].strip("[]")
+    if h in ("127.0.0.1", "localhost", "::1") or h.startswith("127."):
+        return True
+    try:
+        return _orig_proxy_bypass(host)
+    except Exception:
+        return False
+
+
+urllib.request.proxy_bypass = _bypass_local
 
 # ---- 输出编码兜底（务必放在任何 print 之前）----
 # 面板把 stdout 重定向到文件时，Python 按系统代码页（中文 Windows = GBK）编码。
@@ -47,6 +73,60 @@ def _log(msg=""):
             print(str(msg).encode("ascii", "replace").decode("ascii"), flush=True)
         except Exception:
             pass
+
+
+# ---- 忙标记 + 忙时心跳（防止面板看门狗把正在干活的客户端杀掉）----
+# 踩过的坑：翻唱一首歌要 3~5 分钟，这期间客户端不 poll，服务器 health 的
+# online 判定（30 秒内有无 poll）会变成 False → 面板看门狗以为它挂死 →
+# taskkill 掉 → 歌明明混音完成却回传不了，群里只看到"翻唱失败/timed out"。
+# 对策两条：
+#   1) 干活期间写 BUSY_FILE，看门狗看到就跳过重启；
+#   2) 干活期间每 10 秒 POST /ping 保鲜服务器的 _last_poll，health 保持 online。
+BUSY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".busy")
+_BUSY = threading.Event()
+
+
+def _busy_set(stage=""):
+    _BUSY.set()
+    try:
+        with open(BUSY_FILE, "w", encoding="utf-8") as f:
+            f.write("%.0f %s" % (time.time(), stage or "task"))
+    except Exception:
+        pass
+
+
+def _busy_clear():
+    _BUSY.clear()
+    try:
+        if os.path.exists(BUSY_FILE):
+            os.remove(BUSY_FILE)
+    except Exception:
+        pass
+
+
+def _heartbeat_loop():
+    """忙时每 10 秒给服务器 /ping 一次，让 health 的 online 保持 True。"""
+    while True:
+        try:
+            if _BUSY.is_set():
+                base = _base()
+                body = json.dumps({"busy": 1}).encode("utf-8")
+                req = urllib.request.Request(
+                    _url_of(base, "/ping"), data=body,
+                    headers={"Content-Type": "application/json",
+                             "X-TTSToken": SERVER_TOKEN or ""},
+                    method="POST")
+                try:
+                    urllib.request.urlopen(req, timeout=6).read()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        time.sleep(10)
+
+
+def _url_of(base, path):
+    return (base or "").rstrip("/") + path
 
 # ====================== 配置区（改这里或 config.json） ======================
 # 1) 服务器上的代理地址（公网可达）
@@ -1275,6 +1355,51 @@ def _ensure_44k(path, tmpd):
     return path
 
 
+COVER_HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "cover_history.jsonl")
+COVER_HISTORY_KEEP = 50      # 只留最近 50 条，面板读它渲染"最近翻唱"
+_COVER_META = {}             # 本次任务的上下文（预设/参数/时长），由 _cover_run 填
+
+
+def _record_cover(meta, out, err, cost):
+    """把一次翻唱的结果追加到 cover_history.jsonl（面板「最近翻唱」读这个）。
+
+    写失败绝不抛异常 —— 记录日志不能把正事搞挂。
+    """
+    if not meta.get("started"):
+        return
+    row = {
+        "ts": round(meta.get("started") or time.time(), 1),
+        "ok": bool(out),
+        "cost": round(cost, 1),
+        "seconds": round(meta.get("seconds") or 0, 1),
+        "in_kb": int(meta.get("in_kb") or 0),
+        "out_kb": int(len(base64.b64decode(out)) / 1024) if out else 0,
+        "preset": meta.get("preset") or "",
+        "backend": meta.get("backend") or "",
+        "model": meta.get("model") or "",
+        "index_rate": meta.get("index_rate"),
+        "protect": meta.get("protect"),
+        "rms_mix_rate": meta.get("rms_mix_rate"),
+        "f0_method": meta.get("f0_method"),
+        "pitch": meta.get("pitch"),
+        "separate": bool(meta.get("separate")),
+        "harmony": bool(meta.get("harmony")),
+        "error": (str(err)[:180] if err else ""),
+    }
+    try:
+        with open(COVER_HISTORY_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        # 超量就裁剪（低频操作，直接重写整文件足够）
+        with open(COVER_HISTORY_FILE, "r", encoding="utf-8") as f:
+            lines = [n for n in f.read().splitlines() if n.strip()]
+        if len(lines) > COVER_HISTORY_KEEP:
+            with open(COVER_HISTORY_FILE, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines[-COVER_HISTORY_KEEP:]) + "\n")
+    except Exception as e:
+        print("    [记录] 翻唱历史写入失败（忽略）: %s" % str(e)[:80], flush=True)
+
+
 def _finish_cover(out_path, tmpd):
     """成品文件 → base64（统一 44.1k，长音频顺手转 mp3）。返回 (b64, error)。"""
     out_path = _ensure_44k(out_path, tmpd)
@@ -1299,7 +1424,25 @@ def _finish_cover(out_path, tmpd):
 
 
 def do_cover(audio_b64, params=None):
-    """输入音频 → 输出音频。返回 (b64, error)"""
+    """输入音频 → 输出音频。返回 (b64, error)。
+
+    外面这层只负责计时与写翻唱历史，真正干活的是 _cover_run。
+    """
+    global _COVER_META
+    _COVER_META = {"started": time.time(),
+                   "backend": RVC_BACKEND,
+                   "model": RVC_MODEL}
+    t0 = time.time()
+    out, err = None, None
+    try:
+        out, err = _cover_run(audio_b64, params)
+        return out, err
+    finally:
+        _record_cover(_COVER_META, out, err, time.time() - t0)
+
+
+def _cover_run(audio_b64, params=None):
+    """真正的翻唱实现。返回 (b64, error)"""
     params = params or {}
     if not audio_b64:
         return None, "没有收到音频数据"
@@ -1324,6 +1467,18 @@ def do_cover(audio_b64, params=None):
     print("    [RVC] index_rate=%.2f protect=%.2f rms=%.2f f0=%s 变调=%+d(%s)"
           % (rvcp["index_rate"], rvcp["protect"], rvcp["rms_mix_rate"],
              rvcp["f0_method"], rvcp["pitch"], RVC_PITCH_MODE), flush=True)
+    # 供翻唱历史记录使用（面板「最近翻唱」展示实际生效的参数）
+    _COVER_META.update({
+        "preset": rvcp.get("preset") or "",
+        "index_rate": rvcp.get("index_rate"),
+        "protect": rvcp.get("protect"),
+        "rms_mix_rate": rvcp.get("rms_mix_rate"),
+        "f0_method": rvcp.get("f0_method"),
+        "pitch": rvcp.get("pitch"),
+        "separate": bool(rvcp.get("separate")),
+        "harmony": bool(rvcp.get("harmony")) if rvcp.get("harmony") is not None
+                   else bool(RVC_HARMONY),
+    })
 
     # mock 只验证链路：原样返回，不碰 ffmpeg / RVC
     if RVC_BACKEND == "mock":
@@ -1355,6 +1510,8 @@ def do_cover(audio_b64, params=None):
         print("    输入音频: %s / %.1f 秒 / %.0f KB"
               % (os.path.basename(use_path), secs,
                  os.path.getsize(use_path) / 1024), flush=True)
+        _COVER_META.update({"seconds": secs,
+                            "in_kb": int(os.path.getsize(use_path) / 1024)})
 
         # ---- direct 后端：整条链路交给 song_pipeline.py（交接文档标准流程）----
         if RVC_BACKEND == "direct":
@@ -1509,6 +1666,7 @@ def main():
 
     print("→ 已连上服务器，等待任务…（Ctrl+C 退出）")
     print("=" * 62)
+    threading.Thread(target=_heartbeat_loop, daemon=True).start()
     while True:
         try:
             task = poll()
@@ -1537,6 +1695,7 @@ def main():
 
         kind = (task.get("kind") or "tts").lower()
         _t0 = time.time()
+        _busy_set(kind)      # 干活期间：写 .busy + 心跳保鲜，别让看门狗误杀
 
         if kind == "cover":
             _log("[翻唱任务] 收到音频任务，开始处理")
@@ -1556,6 +1715,8 @@ def main():
                 except Exception:
                     pass
                 print("  → 异常 %s: %s" % (type(e).__name__, str(e)[:80]), flush=True)
+            finally:
+                _busy_clear()
             continue
 
         text = task.get("text", "")
@@ -1574,6 +1735,8 @@ def main():
             except Exception:
                 pass
             print("  → 异常 %s: %s" % (type(e).__name__, str(e)[:80]), flush=True)
+        finally:
+            _busy_clear()
 
 
 if __name__ == "__main__":
