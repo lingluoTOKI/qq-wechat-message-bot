@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import time
 from typing import Any
@@ -47,35 +48,40 @@ def _hash(s: str) -> str:
     return hashlib.sha1((s or "").encode("utf-8", "ignore")).hexdigest()[:8]
 
 
+_BRACKET_TAG = re.compile(r"\[(?:At|AtAll|引用消息|Reply|face|image|图片|表情|语音)[^\]]*\]",
+                          re.IGNORECASE)
+
+
 def _strip_noise(text: str) -> str:
     """去掉引用块、At 标记、图片占位，只留用户自己打的字。"""
     t = text or ""
     out = []
     depth = 0
-    skip_tag = None
     for ch in t:
         if ch == "<":
-            skip_tag = ">" if depth == 0 else skip_tag
             depth += 1
             continue
         if ch == ">" and depth > 0:
             depth -= 1
-            if depth == 0:
-                skip_tag = None
             continue
         if depth == 0:
             out.append(ch)
     t = "".join(out)
+    t = _BRACKET_TAG.sub(" ", t)
     t = t.replace("[图片]", " ").replace("[表情]", " ").replace("[语音]", " ")
     return t.strip()
 
 
 def _first_token(text: str) -> str:
+    """取命令名：优先带斜杠的词，否则取第一个词。"""
     t = _strip_noise(text)
     if not t:
         return ""
-    tok = t.split()[0]
-    return tok.lstrip("/").strip().lower()
+    words = t.split()
+    for w in words:
+        if w.startswith("/"):
+            return w.lstrip("/").strip().lower()
+    return words[0].strip().lower()
 
 
 _KNOWN_CACHE: set[str] | None = None
