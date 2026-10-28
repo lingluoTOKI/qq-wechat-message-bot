@@ -6,14 +6,14 @@
   输入 token，还把群里的人带偏。
 
 这里做三件事：
-  1. 注册真的 /ctxbudget（管理员）：返回**从 provider_stats 与本插件捕获的真实数据**。
+  1. 注册真的 /ctxbudget（管理员）：返回**从 provider_stats 与捕获到的真实数据**。
   2. 非管理员发 /ctxbudget（或不带斜杠的 ctxbudget）→ **静默忽略**，0 token、不回复。
   3. 未注册的斜杠命令 → 非管理员静默忽略；管理员回一句"未知命令"（同样 0 token）。
      目的：不让任何"打错/不存在的命令"落进 LLM 白烧钱。
 
-数据来源（都不经过模型）：
-  · 本插件的 on_llm_request 钩子：捕获当轮 system / 工具 / 历史 / 临时注入的构成与哈希
-  · data_v4.db 的 provider_stats：DeepSeek 返回的真实 input/cached/output
+注意：本文件只放**模块级函数**，不定义类、不带装饰器。
+  装饰器（@filter.command / @filter.on_llm_request）必须写在插件自己的
+  main.py 里 —— 否则框架会按"定义所在模块"归属 handler，插件自己永远收不到。
 """
 
 from __future__ import annotations
@@ -27,13 +27,27 @@ import time
 from typing import Any
 
 from astrbot.api import logger
-from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.event import AstrMessageEvent
 
 DATA_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 STATS_DB = os.path.join(DATA_DIR, "data_v4.db")
 
-# 命令名（不含斜杠）与别名，用于判定"这是不是一条命令"
+# 命令名（不含斜杠）
 CMD_CTXBUDGET = "ctxbudget"
+
+# 管理员判定用的 ID 列表（QQ 号 + openid 两种形式都收）。
+# 框架的 admins_id 在 qq_official 上比对的是 QQ 号，而面板里常填 openid，
+# 这里自己兜住，避免"改了 admins_id 也不生效"。
+DEFAULT_ADMIN_IDS = ("474496195", "D3EB1FC111219D62DA6C12702EC52055")
+
+# 每个会话最近一轮请求的构成快照（只存哈希与长度，不存原文）
+_SESSIONS: dict[str, dict[str, Any]] = {}
+
+_KNOWN_CACHE: set[str] | None = None
+
+_BRACKET_TAG = re.compile(
+    r"\[(?:At|AtAll|引用消息|Reply|face|image|图片|表情|语音)[^\]]*\]", re.IGNORECASE
+)
 
 
 def _est_tokens(s: str) -> int:
@@ -46,10 +60,6 @@ def _est_tokens(s: str) -> int:
 
 def _hash(s: str) -> str:
     return hashlib.sha1((s or "").encode("utf-8", "ignore")).hexdigest()[:8]
-
-
-_BRACKET_TAG = re.compile(r"\[(?:At|AtAll|引用消息|Reply|face|image|图片|表情|语音)[^\]]*\]",
-                          re.IGNORECASE)
 
 
 def _strip_noise(text: str) -> str:
@@ -83,13 +93,10 @@ def _first_token(text: str) -> str:
             name = w.lstrip("/").strip()
             if name:
                 return name.lower()
-            if i + 1 < len(words):          # "/ ctxbudget"
+            if i + 1 < len(words):  # "/ ctxbudget"
                 return words[i + 1].strip().lower()
             return ""
     return words[0].strip().lower()
-
-
-_KNOWN_CACHE: set[str] | None = None
 
 
 def _known_commands() -> set[str]:
@@ -128,12 +135,6 @@ def _known_commands() -> set[str]:
     return names
 
 
-# 管理员判定用的 ID 列表（QQ 号 + openid 两种形式都收）。
-# 框架的 admins_id 在 qq_official 上比对的是 QQ 号，而面板里常填 openid，
-# 这里自己兜住，避免"改了 admins_id 也不生效"。
-DEFAULT_ADMIN_IDS = ("474496195", "D3EB1FC111219D62DA6C12702EC52055")
-
-
 def _is_admin(event: AstrMessageEvent) -> bool:
     """判断发信人是不是管理员：QQ 号 / openid 任一命中即算。"""
     try:
@@ -142,13 +143,6 @@ def _is_admin(event: AstrMessageEvent) -> bool:
     except Exception:
         pass
     ids = set(DEFAULT_ADMIN_IDS)
-    try:
-        cfg = getattr(event, "config", None) or {}
-        extra = cfg.get("admin_ids") if isinstance(cfg, dict) else None
-        if extra:
-            ids.update(str(x) for x in extra)
-    except Exception:
-        pass
     candidates = []
     try:
         candidates.append(str(event.get_sender_id() or ""))
@@ -168,182 +162,195 @@ def _is_admin(event: AstrMessageEvent) -> bool:
     return False
 
 
-class CtxBudgetMixin:
-    """真实诊断 + 未知命令守门人。"""
+_HANDLER_CHECKED = False
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._cb_sessions: dict[str, dict[str, Any]] = {}
 
-    # ---------- 捕获当轮请求构成 ----------
+def _log_handlers_once() -> None:
+    """一次性自检：把框架注册表里属于本插件模块的 handler 打出来，
+    用来确认装饰器写在了插件自己的模块里（否则永远不会被调度）。"""
+    global _HANDLER_CHECKED
+    if _HANDLER_CHECKED:
+        return
+    _HANDLER_CHECKED = True
+    try:
+        from astrbot.core.star.register.star_handler import star_handlers_registry
+        hs = list(getattr(star_handlers_registry, "_handlers", []) or [])
+        mine = []
+        for h in hs:
+            path = str(getattr(h, "handler_module_path", "") or "")
+            if "dafeiyu_help" in path:
+                mine.append("%s@%s" % (getattr(h, "handler_name", "?"),
+                                        path.rsplit(".", 1)[-1]))
+        logger.info("[ctxbudget] 本插件 handler: %s" % ("、".join(mine) or "（无）"))
+    except Exception as e:
+        logger.warning("[ctxbudget] handler 自检失败：%s" % str(e)[:120])
 
-    @filter.on_llm_request(priority=200000)
-    async def ctxbudget_capture(self, event: AstrMessageEvent, req):
-        """记录 system/工具/历史/临时注入的构成与哈希（只存哈希与长度，不存原文）。"""
-        try:
-            if not event:
-                return
-            key = str(getattr(event, "unified_msg_origin", "") or "unknown")
-            tools = []
-            try:
-                ft = getattr(req, "func_tool", None)
-                tools = list(getattr(ft, "tools", []) or []) if ft else []
-            except Exception:
-                tools = []
-            tool_chars = 0
-            tool_names = []
-            for t in tools:
-                try:
-                    tool_names.append(str(getattr(t, "name", "")))
-                    tool_chars += len(json.dumps(
-                        getattr(t, "parameters", None) or {}, ensure_ascii=False, default=str))
-                    tool_chars += len(str(getattr(t, "description", "") or ""))
-                except Exception:
-                    continue
-            contexts = list(getattr(req, "contexts", []) or [])
-            ctx_chars = 0
-            ctx_roles = []
-            for c in contexts:
-                if isinstance(c, dict):
-                    ctx_roles.append(str(c.get("role", "?")))
-                    ctx_chars += len(json.dumps(c.get("content"), ensure_ascii=False, default=str))
-                else:
-                    ctx_roles.append(str(getattr(c, "role", "?")))
-                    ctx_chars += len(str(getattr(c, "content", "") or ""))
-            extra = list(getattr(req, "extra_user_content_parts", []) or [])
-            extra_chars = 0
-            for p in extra:
-                try:
-                    extra_chars += len(str(getattr(p, "text", "") or ""))
-                except Exception:
-                    pass
-            system = getattr(req, "system_prompt", "") or ""
-            prev = self._cb_sessions.get(key, {})
-            self._cb_sessions[key] = {
-                "ts": time.time(),
-                "system_chars": len(system),
-                "system_hash": _hash(system),
-                "system_changed": bool(prev) and prev.get("system_hash") != _hash(system),
-                "prompt_chars": len(getattr(req, "prompt", "") or ""),
-                "tool_count": len(tools),
-                "tool_names": tool_names,
-                "tool_chars": tool_chars,
-                "tools_changed": bool(prev) and prev.get("tool_names") != tool_names,
-                "ctx_count": len(contexts),
-                "ctx_chars": ctx_chars,
-                "ctx_roles": ctx_roles,
-                "extra_count": len(extra),
-                "extra_chars": extra_chars,
-            }
-        except Exception as e:
-            logger.debug("[ctxbudget] 捕获失败：%s" % str(e)[:120])
 
-    # ---------- 守门人：未知命令 / 非管理员命令一律不进 LLM ----------
-
-    @filter.on_llm_request(priority=200001)
-    async def ctxbudget_gate(self, event: AstrMessageEvent, req):
-        try:
-            raw = str(getattr(event, "message_str", "") or "")
-            clean = _strip_noise(raw)
-            if not clean:
-                return
-            is_slash = clean.startswith("/")
-            tok = _first_token(clean)
-            if not tok:
-                return
-            is_admin = _is_admin(event)
-
-            # 我们的诊断命令：任何形式都自己处理，绝不让模型"演"
-            if tok == CMD_CTXBUDGET:
-                event.stop_event()
-                if is_admin:
-                    await self._send_ctxbudget(event)
-                return
-
-            # 未注册的斜杠命令：非管理员静默，管理员给提示（都是 0 token）
-            if is_slash:
-                known = _known_commands()
-                if "__all__" in known or tok in known:
-                    return
-                event.stop_event()
-                if is_admin:
-                    await event.send(event.plain_result(
-                        f"未知命令 /{tok}。发 /功能 看有哪些命令可用。"))
-        except Exception as e:
-            logger.debug("[ctxbudget] 守门失败：%s" % str(e)[:120])
-
-    # ---------- 真实数据 ----------
-
-    def _recent_usage(self) -> dict[str, Any]:
-        """从 provider_stats 取最近一条 DeepSeek 的真实用量。"""
-        try:
-            conn = sqlite3.connect("file:" + STATS_DB + "?mode=ro", uri=True)
-            try:
-                row = conn.execute(
-                    "SELECT start_time, provider_id, token_input_other, token_input_cached, "
-                    "token_output FROM provider_stats WHERE provider_id LIKE 'deepseek%' "
-                    "ORDER BY start_time DESC LIMIT 1"
-                ).fetchone()
-            finally:
-                conn.close()
-            if not row:
-                return {}
-            st, pid, miss, hit, out = row
-            return {
-                "time": st,
-                "total": (miss or 0) + (hit or 0),
-                "hit": hit or 0,
-                "miss": miss or 0,
-                "out": out or 0,
-                "rate": (hit or 0) * 100.0 / ((miss or 0) + (hit or 0)) if ((miss or 0) + (hit or 0)) else 0,
-            }
-        except Exception as e:
-            logger.debug("[ctxbudget] 读 provider_stats 失败：%s" % str(e)[:120])
-            return {}
-
-    def _session_stats(self, event: AstrMessageEvent) -> dict[str, Any]:
-        key = str(getattr(event, "unified_msg_origin", "") or "unknown")
-        return self._cb_sessions.get(key, {})
-
-    async def _send_ctxbudget(self, event: AstrMessageEvent):
-        s = self._session_stats(event)
-        u = self._recent_usage()
-        if not s and not u:
-            await event.send(event.plain_result(
-                "还没有可统计的请求——先聊一句再来。"))
+def capture(event: AstrMessageEvent, req) -> None:
+    """记录 system/工具/历史/临时注入的构成与哈希（只存哈希与长度，不存原文）。"""
+    try:
+        _log_handlers_once()
+        if not event:
             return
-        lines = ["[本群上下文诊断 · 真实数据]"]
-        if s:
-            lines.append(
-                "本轮构成：system %d 字符(≈%d tok) | 工具 %d 个 / 定义 %d 字符 | "
-                "历史 %d 条 / %d 字符(≈%d tok) | 临时注入 %d 段 / %d 字符(≈%d tok)"
-                % (
-                    s.get("system_chars", 0), _est_tokens("x" * s.get("system_chars", 0)),
-                    s.get("tool_count", 0), s.get("tool_chars", 0),
-                    s.get("ctx_count", 0), s.get("ctx_chars", 0),
-                    _est_tokens("x" * s.get("ctx_chars", 0)),
-                    s.get("extra_count", 0), s.get("extra_chars", 0),
-                    _est_tokens("x" * s.get("extra_chars", 0)),
-                )
-            )
-            lines.append(
-                "前缀稳定性：system %s | 工具 %s"
-                % ("变了" if s.get("system_changed") else "未变",
-                   "变了" if s.get("tools_changed") else "未变")
-            )
-        if u:
-            lines.append(
-                "DeepSeek 最近一次：输入 %d（缓存 %d / 未缓存 %d）输出 %d，缓存占比 %.1f%%"
-                % (u["total"], u["hit"], u["miss"], u["out"], u["rate"])
-            )
-        lines.append("（以上为框架与 provider_stats 的真实读数，非模型估算）")
-        await event.send(event.plain_result("\n".join(lines)))
+        key = str(getattr(event, "unified_msg_origin", "") or "unknown")
+        tools = []
+        try:
+            ft = getattr(req, "func_tool", None)
+            tools = list(getattr(ft, "tools", []) or []) if ft else []
+        except Exception:
+            tools = []
+        tool_chars = 0
+        tool_names = []
+        for t in tools:
+            try:
+                tool_names.append(str(getattr(t, "name", "")))
+                tool_chars += len(json.dumps(
+                    getattr(t, "parameters", None) or {}, ensure_ascii=False, default=str))
+                tool_chars += len(str(getattr(t, "description", "") or ""))
+            except Exception:
+                continue
+        contexts = list(getattr(req, "contexts", []) or [])
+        ctx_chars = 0
+        for c in contexts:
+            if isinstance(c, dict):
+                ctx_chars += len(json.dumps(c.get("content"), ensure_ascii=False, default=str))
+            else:
+                ctx_chars += len(str(getattr(c, "content", "") or ""))
+        extra = list(getattr(req, "extra_user_content_parts", []) or [])
+        extra_chars = 0
+        for p in extra:
+            try:
+                extra_chars += len(str(getattr(p, "text", "") or ""))
+            except Exception:
+                pass
+        system = getattr(req, "system_prompt", "") or ""
+        sys_hash = _hash(system)
+        prev = _SESSIONS.get(key, {})
+        _SESSIONS[key] = {
+            "ts": time.time(),
+            "system_chars": len(system),
+            "system_hash": sys_hash,
+            "system_changed": bool(prev) and prev.get("system_hash") != sys_hash,
+            "prompt_chars": len(getattr(req, "prompt", "") or ""),
+            "tool_count": len(tools),
+            "tool_names": tool_names,
+            "tool_chars": tool_chars,
+            "tools_changed": bool(prev) and prev.get("tool_names") != tool_names,
+            "ctx_count": len(contexts),
+            "ctx_chars": ctx_chars,
+            "extra_count": len(extra),
+            "extra_chars": extra_chars,
+        }
+    except Exception as e:
+        logger.debug("[ctxbudget] 捕获失败：%s" % str(e)[:120])
 
-    # ---------- 注册命令 ----------
 
-    @filter.command("ctxbudget")
-    async def ctxbudget_cmd(self, event: AstrMessageEvent):
-        """管理员用的上下文/缓存真实诊断。"""
-        if not _is_admin(event):
-            return  # 非管理员：静默忽略，不回复、不耗 token
-        await self._send_ctxbudget(event)
+def _recent_usage() -> dict[str, Any]:
+    """从 provider_stats 取最近一条 DeepSeek 的真实用量。"""
+    try:
+        conn = sqlite3.connect("file:" + STATS_DB + "?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT start_time, provider_id, token_input_other, token_input_cached, "
+                "token_output FROM provider_stats WHERE provider_id LIKE 'deepseek%' "
+                "ORDER BY start_time DESC LIMIT 1"
+            ).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return {}
+        st, pid, miss, hit, out = row
+        total = (miss or 0) + (hit or 0)
+        return {
+            "time": st,
+            "total": total,
+            "hit": hit or 0,
+            "miss": miss or 0,
+            "out": out or 0,
+            "rate": (hit or 0) * 100.0 / total if total else 0,
+        }
+    except Exception as e:
+        logger.debug("[ctxbudget] 读 provider_stats 失败：%s" % str(e)[:120])
+        return {}
+
+
+def _session_stats(event: AstrMessageEvent) -> dict[str, Any]:
+    key = str(getattr(event, "unified_msg_origin", "") or "unknown")
+    return _SESSIONS.get(key, {})
+
+
+async def send_ctxbudget(event: AstrMessageEvent) -> None:
+    """把真实诊断发出去。"""
+    s = _session_stats(event)
+    u = _recent_usage()
+    if not s and not u:
+        await event.send(event.plain_result("还没有可统计的请求——先聊一句再来。"))
+        return
+    lines = ["[本群上下文诊断 · 真实数据]"]
+    if s:
+        lines.append(
+            "本轮构成：system %d 字符(≈%d tok) | 工具 %d 个 / 定义 %d 字符 | "
+            "历史 %d 条 / %d 字符(≈%d tok) | 临时注入 %d 段 / %d 字符(≈%d tok)"
+            % (
+                s.get("system_chars", 0), _est_tokens("x" * s.get("system_chars", 0)),
+                s.get("tool_count", 0), s.get("tool_chars", 0),
+                s.get("ctx_count", 0), s.get("ctx_chars", 0),
+                _est_tokens("x" * s.get("ctx_chars", 0)),
+                s.get("extra_count", 0), s.get("extra_chars", 0),
+                _est_tokens("x" * s.get("extra_chars", 0)),
+            )
+        )
+        lines.append(
+            "前缀稳定性：system %s | 工具 %s"
+            % ("变了" if s.get("system_changed") else "未变",
+               "变了" if s.get("tools_changed") else "未变")
+        )
+    if u:
+        lines.append(
+            "DeepSeek 最近一次：输入 %d（缓存 %d / 未缓存 %d）输出 %d，缓存占比 %.1f%%"
+            % (u["total"], u["hit"], u["miss"], u["out"], u["rate"])
+        )
+    lines.append("（以上为框架与 provider_stats 的真实读数，非模型估算）")
+    await event.send(event.plain_result("\n".join(lines)))
+
+
+async def gate(event: AstrMessageEvent, req) -> None:
+    """守门人：未知命令 / 非管理员命令一律不进 LLM。"""
+    try:
+        raw = str(getattr(event, "message_str", "") or "")
+        clean = _strip_noise(raw)
+        if not clean:
+            return
+        is_slash = clean.startswith("/")
+        tok = _first_token(clean)
+        if not tok:
+            return
+        is_admin = _is_admin(event)
+
+        # 我们的诊断命令：任何形式都自己处理，绝不让模型"演"
+        if tok == CMD_CTXBUDGET:
+            event.stop_event()
+            logger.info("[ctxbudget] 命中命令 token=%r admin=%s" % (tok, is_admin))
+            if is_admin:
+                await send_ctxbudget(event)
+            return
+
+        # 未注册的斜杠命令：非管理员静默，管理员给提示（都是 0 token）
+        if is_slash:
+            known = _known_commands()
+            if "__all__" in known or tok in known:
+                return
+            event.stop_event()
+            logger.info("[ctxbudget] 未知命令 /%s admin=%s" % (tok, is_admin))
+            if is_admin:
+                await event.send(event.plain_result(
+                    f"未知命令 /{tok}。发 /功能 看有哪些命令可用。"))
+    except Exception as e:
+        logger.debug("[ctxbudget] 守门失败：%s" % str(e)[:120])
+
+
+async def ctxbudget_cmd(event: AstrMessageEvent) -> None:
+    """管理员用的上下文/缓存真实诊断。"""
+    if not _is_admin(event):
+        return  # 非管理员：静默忽略，不回复、不耗 token
+    await send_ctxbudget(event)

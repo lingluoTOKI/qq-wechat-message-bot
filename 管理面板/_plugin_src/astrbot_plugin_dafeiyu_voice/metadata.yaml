@@ -1,0 +1,7 @@
+name: astrbot_plugin_dafeiyu_voice
+desc: 大肥鱼语音 v2.0：/说 /语音开 /语音关，多档回落（本地 GPT-SoVITS → MiMo → Edge TTS），文字与语音并存、分句发送、失败保留文字。
+short_desc: 多档回落语音
+version: 2.0.0
+author: ops
+display_name: 大肥鱼语音
+astrbot_version: ">=4.25.5"

@@ -419,7 +419,7 @@ AstrBot v4.29.3 有个 bug：预算超限走「跳过 LLM」路径时
 |---|---|---|---|
 | 1 | **四个 API Key 轮换** | **高** | DeepSeek / MiMo / 智谱 三个 provider Key，**外加 `provider_settings.websearch_deepseek_key`**（2026-10-28 读配置时第二次暴露，同样只在 `cmd_config.json` 里，改完重启容器）。 |
 | 2 | ~~删除 `astrbot_plugin_cacheprobe`~~ | 中 | **已完成（2026-10-28 19:03）**：插件目录与 `plugin_data/cacheprobe`（320K dump）已删，备份 `data/backups/cacheprobe-20261028-1900.tar.gz`。后续要看工具数直接发 `/ctxbudget`。 |
-| 3 | ~~形态 A 的调用方定位~~ | 中 | **已定位并修复（2026-10-28）**：根因是 `agent_runner.config.persona` 缺 `tools`/`skills`，框架回落到 `get_full_tool_set()` 导致同会话 20↔13 工具交替；已按 persona 12 补齐，备份 `cmd_config.json.bak-persona-tools-20261028-185047`。 |
+| 3 | ~~形态 A 的调用方定位~~ | 中 | **已定位、修复并线上复验（2026-10-28 19:1x）**：根因是 `agent_runner.config.persona` 缺 `tools`/`skills`，框架回落到 `get_full_tool_set()` 导致同会话 20↔13 工具交替；已按 persona 12 补齐（备份 `cmd_config.json.bak-persona-tools-20261028-185047`）。`/ctxbudget` 连测两次：**工具 19 个、system 未变、工具 未变**，缓存占比 94%。 |
 | 4 | 人格 `skills`/`tools` 是否还要精简 | 低 | `anysearch_*` 两个工具 48h 真实调用 0 次，但占 ~160 token；优先级低于 #3。 |
 | 5 | snowluma 容器要不要恢复 | 低 | 当前只有 astrbot 在跑，机器人走 qq_official 正常。**拉起前先确认不会和官方平台重复接管消息。** |
 | 6 | 参考音频只有 3.02 秒 | 低 | 在 GPT-SoVITS 建议下限（3~10s）。若音色不稳，换 5~10 秒干声会明显改善。 |
