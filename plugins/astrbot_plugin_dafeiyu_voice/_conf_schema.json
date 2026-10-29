@@ -1,0 +1,102 @@
+{
+  "enabled": {
+    "description": "是否启用语音功能",
+    "type": "bool",
+    "default": true
+  },
+  "tier_order": {
+    "description": "回落顺序（逗号分隔）：local=本地GPT-SoVITS，mimo=小米MiMo，edge=微软Edge TTS。前面失败自动降级",
+    "type": "string",
+    "default": "local,mimo,edge"
+  },
+  "local_enabled": {
+    "description": "启用本地 GPT-SoVITS（经桥接 32000，需本机面板/GPT-SoVITS 在跑）",
+    "type": "bool",
+    "default": true
+  },
+  "proxy_url": {
+    "description": "本地语音桥接地址（容器内访问宿主机用 http://172.18.0.1:32000）",
+    "type": "string",
+    "default": "http://172.18.0.1:32000"
+  },
+  "proxy_token": {
+    "description": "与服务器 local_tts_server 的 LTT_TOKEN 一致（留空则不带鉴权）",
+    "type": "string",
+    "default": "k2YFOSvd9Sdi_Tyizv0uyJ6IwVQRhx8dOLUiwFIe5vs"
+  },
+  "local_timeout": {
+    "description": "本地桥接等待秒数（在线约 25 秒超时，建议 30）",
+    "type": "int",
+    "default": 30
+  },
+  "mimo_enabled": {
+    "description": "启用 MiMo 档（需填 mimo_api_key；小米 MiMo，走 /v1/chat/completions）",
+    "type": "bool",
+    "default": false
+  },
+  "mimo_api_base": {
+    "description": "MiMo 接口根地址（到 /v1 为止）",
+    "type": "string",
+    "default": "https://api.xiaomimimo.com/v1"
+  },
+  "mimo_api_key": {
+    "description": "MiMo API Key（sk- 开头）",
+    "type": "string",
+    "default": ""
+  },
+  "mimo_model": {
+    "description": "MiMo 模型名：mimo-v2.5-tts（默认音色）或 mimo-v2.5-tts-voiceclone（需参考音频）",
+    "type": "string",
+    "default": "mimo-v2.5-tts"
+  },
+  "mimo_voice": {
+    "description": "MiMo 音色名",
+    "type": "string",
+    "default": "mimo-v2.5-tts-voiceclone"
+  },
+  "edge_enabled": {
+    "description": "启用 Edge TTS（免费，PC 关机也不哑）",
+    "type": "bool",
+    "default": true
+  },
+  "edge_voice": {
+    "description": "Edge 音色（默认 zh-CN-XiaoyiNeural 晓伊）",
+    "type": "string",
+    "default": "zh-CN-XiaoyiNeural"
+  },
+  "edge_pitch": {
+    "description": "Edge 音高（如 +15Hz / -10Hz，默认 +15Hz 提亮）",
+    "type": "string",
+    "default": "+15Hz"
+  },
+  "edge_rate": {
+    "description": "Edge 语速（如 +0% / +10%）",
+    "type": "string",
+    "default": "+0%"
+  },
+  "output_mode": {
+    "description": "自动语音输出：append=先文字再语音（可看可听），replace=只发语音",
+    "type": "string",
+    "default": "append"
+  },
+  "sentence_split": {
+    "description": "长回复按句切分、逐段合成并依次发送",
+    "type": "bool",
+    "default": true
+  },
+  "max_length": {
+    "description": "自动语音单条最长字数，超出截断",
+    "type": "int",
+    "default": 200
+  },
+  "min_length": {
+    "description": "短于这个字数的回复不转语音",
+    "type": "int",
+    "default": 1
+  },
+  "silk_friendly": {
+    "description": "发送前先降为 24k 单声道 mp3（QQ 语音 silk 更友好）",
+    "type": "bool",
+    "default": true
+  }
+}

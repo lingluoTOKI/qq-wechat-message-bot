@@ -90,7 +90,7 @@ def upcoming(rows, today=None):
     return out
 
 
-def format_list(store, hour=9):
+def format_list(store, hour=0):
     """给 /记忆 生日 用的纯文本列表。"""
     rows = store.birthdays()
     if not rows:
@@ -131,9 +131,9 @@ class BirthdayWatch:
 
     def hour(self):
         try:
-            return max(0, min(23, int(self.config.get("birthday_hour", 9))))
+            return max(0, min(23, int(self.config.get("birthday_hour", 0))))
         except (TypeError, ValueError):
-            return 9
+            return 0
 
     def targets(self):
         raw = str(self.config.get("birthday_targets", "") or "")
@@ -171,7 +171,9 @@ class BirthdayWatch:
                 raise
             except Exception as e:
                 logger.warning("[daily_memory] 生日检查失败：%s" % str(e)[:200])
-            await asyncio.sleep(CHECK_SECONDS)
+            # Align the next check to Beijing midnight instead of polling past it.
+            until_midnight = 86400 - ((time.time() + TZ) % 86400)
+            await asyncio.sleep(min(CHECK_SECONDS, until_midnight))
 
     # ---------- 核心 ----------
 

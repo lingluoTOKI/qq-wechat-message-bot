@@ -15,6 +15,7 @@
 │   ├── astrbot_plugin_dafeiyu_help/        说明书 /功能、上下文诊断 /ctxbudget
 │   ├── astrbot_plugin_dafeiyu_daily_memory/ 情景记忆：原话留档、人物画像、会话标签
 │   ├── astrbot_plugin_dafeiyu_cover/        翻唱（RVC 音色）
+│   ├── astrbot_plugin_dafeiyu_voice/        语音合成（本地 GPT-SoVITS → MiMo → Edge 回落）
 │   ├── astrbot_plugin_dafeiyu_group_guard/  群聊日额度 + 高峰休眠守卫
 │   ├── astrbot_plugin_usage_view/           群内 /用量 查询
 │   ├── astrbot_plugin_request_ledger/       逐请求用量账本
@@ -96,6 +97,7 @@ Windows 下 `zoneinfo` 需要 `pip install tzdata`，否则涉及时区的用例
 | `astrbot_plugin_dafeiyu_help` | `/功能` 分类说明书；管理员 `/ctxbudget` 上下文诊断（不调模型） |
 | `astrbot_plugin_dafeiyu_daily_memory` | 每日原话归档、人物画像、跨群记忆召回与会话标签 |
 | `astrbot_plugin_dafeiyu_cover` | 点歌翻唱（RVC 音色） |
+| `astrbot_plugin_dafeiyu_voice` | `/说`、`/语音开`、`/语音关`；本地 → MiMo → Edge 三档回落 |
 | `astrbot_plugin_dafeiyu_group_guard` | 群聊日额度 ¥0.5、工作日高峰休眠，超限静默 |
 | `astrbot_plugin_usage_view` | `/用量`、`/账单` 查询 |
 | `astrbot_plugin_request_ledger` | 逐请求记录用量，供官方账单对账 |

@@ -12,7 +12,7 @@ ROOT = next(p for p in Path(__file__).resolve().parents if (p / '.git').exists()
 MANIFESTS = [ROOT / 'review' / f'acceptance-{name}.json'
              for name in ('second', 'followup', 'media', 'workflow')]
 MANIFESTS += [ROOT / 'review' / f'{name}-deployment.json' for name in
-              ('official-balance', 'usage-simple', 'selection-owner', 'esports-output', 'balance-reload', 'voice-delivery', 'subscriptions', 'media-flow', 'direct-budget', 'meme-budget', 'embedding-flow', 'help-refresh', 'birthday-recovery', 'birthday-input', 'birthday-style', 'session-budget')]
+              ('official-balance', 'usage-simple', 'selection-owner', 'esports-output', 'balance-reload', 'voice-delivery', 'subscriptions', 'media-flow', 'direct-budget', 'meme-budget', 'embedding-flow', 'help-refresh', 'birthday-recovery', 'birthday-input', 'birthday-style', 'session-budget', 'birthday-midnight')]
 
 
 def main():

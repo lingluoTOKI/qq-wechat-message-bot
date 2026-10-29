@@ -61,7 +61,7 @@
   "birthday_hour": {
     "description": "每天几点之后检查并发祝贺（0-23，北京时间）",
     "type": "int",
-    "default": 9,
+    "default": 0,
     "hint": "过了这个点才开始检查；同一个人当天只发一次。"
   },
   "birthday_targets": {
