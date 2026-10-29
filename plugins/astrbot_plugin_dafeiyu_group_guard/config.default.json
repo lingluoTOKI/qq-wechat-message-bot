@@ -2,7 +2,7 @@
   "enabled": true,
   "group_daily_budget_cny": 0.5,
   "private_exempt": true,
-  "panel_to_bill": 1.0,
+  "panel_to_bill": 1.52,
   "effective_from": "2026-10-29T20:00:00+08:00",
   "peak_sleep": true,
   "peak_windows": [[9, 12], [14, 18]],

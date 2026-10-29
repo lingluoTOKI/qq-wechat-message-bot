@@ -1,7 +1,7 @@
 """群聊预算 + 高峰休眠守卫（大肥鱼）。
 
 规则（2026-10-29 定）：
-1. 群聊：按日额度 ¥0.5（**账单口径**，面板数字需 ÷ panel_to_bill 折算），超出后当日不再回复；
+1. 群聊：按日额度 ¥0.5（**账单口径**，本地记录的金额 × panel_to_bill 折算），超出后当日不再回复；
 2. 私聊：完全不受本插件限制（private_exempt=true）；
 3. 高峰休眠：工作日北京时间 09:00-12:00、14:00-18:00 群聊一律不回复，到点自动恢复；
 4. 休眠/超预算期间收到的消息**不补答**，只回复恢复之后的新消息（靠 stop_event 丢弃，不排队）。
@@ -29,9 +29,11 @@ DEFAULTS = {
     "enabled": True,
     "group_daily_budget_cny": 0.5,
     "private_exempt": True,
-    # 面板行合计 → 账单估算的系数。实测同日 raw 行合计 ≈ 官方 ±10%，故默认 1.0；
-    # 若以后要用 cost_control 面板展示值（按 request_id 去重）作基数，应改为 0.714。
-    "panel_to_bill": 1.0,
+    # 本地行合计 → 官方账单的折算系数。
+    # 2026-10-29 实测：官方 114 请求 ¥1.261369，supplement 76 行 ¥0.827703，
+    # 覆盖率 65.6% → 系数 1.524。cost_control 只记录经过其 hook 的请求，
+    # 压缩、内部摘要等调用不在表内；不折算的话 ¥0.5 额度实际会花到约 ¥0.76。
+    "panel_to_bill": 1.52,
     # 规则生效时刻（ISO，含时区）。当日额度从 max(当天0点, 此处) 起算，避免"一上线就因历史花费被静默"。
     "effective_from": "2026-10-29T19:55:00+08:00",
     "peak_sleep": True,
@@ -80,10 +82,10 @@ def next_resume(now: datetime, cfg: dict):
 
 
 def group_spend_cny(umo: str, now: datetime, cfg: dict | None = None) -> float:
-    """当日该群已花（面板行合计，CNY）。
+    """当日该群已花（账单口径估算，CNY）。
 
-    基数取 supplement.db 的固化 ``cost_amount``；每行对应一次真实 API 调用，
-    与官方计费口径一致（实测同日合计 ≈ 官方 ±10%）。
+    基数取 supplement.db 的 ``cost_amount``（每次 API 调用的官方单价算出的金额，
+    含峰时 ×2），再乘以 ``panel_to_bill`` 补足未记录的调用（实测覆盖率约 65.6%）。
     """
     if not Path(SUPPLEMENT).exists():
         return 0.0
