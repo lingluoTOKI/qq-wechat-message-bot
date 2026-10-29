@@ -1,0 +1,6 @@
+name: astrbot_plugin_dafeiyu_daily_memory
+display_name: 大肥鱼情景记忆
+desc: 原样归档群聊记录 + 人物档案时间线，支持按关键词/人物全文检索；生日结构化单独注入，并在当天按人物画像自动生成祝贺发到群里；在系统提示里标注当前会话，区分不同群的记忆。与 livingmemory 数据完全独立。
+version: v0.3.4
+author: TOKI
+repo: ""

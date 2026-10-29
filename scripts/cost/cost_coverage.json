@@ -1,0 +1,10 @@
+{
+  "2026-10-29": {
+    "cost_coverage": 65.6,
+    "official_cost": 1.261369,
+    "official_req": 114,
+    "panel_cost": 0.827703,
+    "panel_req": 76,
+    "req_coverage": 66.7
+  }
+}

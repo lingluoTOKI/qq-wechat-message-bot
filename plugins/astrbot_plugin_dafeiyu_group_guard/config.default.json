@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "group_daily_budget_cny": 0.5,
+  "private_exempt": true,
+  "panel_to_bill": 1.0,
+  "effective_from": "2026-10-29T20:00:00+08:00",
+  "peak_sleep": true,
+  "peak_windows": [[9, 12], [14, 18]],
+  "peak_weekdays_only": true,
+  "notice_peak": "嗝——现在是高峰段，我说一句话都要双倍的钱，先眯一会儿。等 {end} 一到我就醒，这会儿要是有事，把话放这儿，我一睁眼就回，不会装死的。",
+  "notice_budget": "今天的群聊零花钱（¥{budget}）已经花光啦，我先闭嘴到明天 0 点。"
+}

@@ -1,0 +1,6 @@
+name: astrbot_plugin_request_ledger
+display_name: 逐请求账本与官方对账
+desc: 记录DeepSeek每次HTTP请求的真实usage，支持官方CSV导入去重校正和全局预算保护；不保存消息正文。
+version: 1.0.0
+author: TOKI
+repo: ""

@@ -1,102 +1,91 @@
-# === 本地配置（含个人账号信息）===
-个人QQ重要消息提醒/config.json
-个人QQ重要消息提醒/runtime.json
-管理面板/101.132.104.41
+# ============================================================
+# 大肥鱼 / 卫戍协议机器人 —— Git 忽略规则
+# 原则：只提交源码、配置模板和文档；运行时数据、凭据、依赖不收。
+# ============================================================
 
-# === 管理面板临时脚本 / 备份 ===
-管理面板/output/
-
-# === 敏感凭据（绝对不能传）===
+# === 凭据与本地密钥（绝对不能提交）===
 密码.md
 secrets.dpapi
-*.pem
 *.dpapi
+*.pem
 .vault
 vault.py
+管理面板/101.132.104.41
 
-# === 数据库 / 聊天记录 ===
-*.sqlite
-*.sqlite-shm
-*.sqlite-wal
+# === 本地实际配置（仓库里只保留 *.example.json 模板）===
+个人QQ重要消息提醒/config.json
+个人QQ重要消息提醒/runtime.json
+管理面板/本地TTS/config.json
+管理面板/本地TTS/cover_history.jsonl
+
+# === 运行时数据库与聊天记录 ===
 *.db
 *.db-shm
 *.db-wal
-wechat-cache/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 state.sqlite*
 wechat-state.sqlite*
+wechat-cache/
 
-# === 运行时 / 安装包 / 大文件 ===
+# === 第三方依赖与本地素材（体积大，不入库）===
+vendor/
+snowluma相关/
+dsh桌面端/
+其他环境依赖/
+知识库/
+TTS素材/
+云端部署提示词/
+人格提示词及表情包/
+wechat-adapter-review/
+wushu-ops-review/
+runtime-v*/
+
+# === 临时工作区与实验产物 ===
+tmp/
+_tmp/
+review/
+voicetest/
+.screenshots/
+.workbuddy/
+管理面板/output/
+*.tmp
+*.pid
+
+# === 模型权重与二进制 ===
+*.pth
+*.ckpt
+*.index
 *.exe
 *.msi
 *.dll
 *.node
-runtime-v*/
 node.exe
-# astrbot相关/ 下大部分是第三方安装包，只把我们自己的插件与补丁纳入版本管理
-astrbot相关/*
-!astrbot相关/astrbot_plugin_dafeiyu_cover/
-!astrbot相关/astrbot_plugin_dafeiyu_daily_memory/
-!astrbot相关/astrbot_plugin_dafeiyu_help/
-!astrbot相关/astrbot_plugin_wushu_ops/
-!astrbot相关/patches/
-astrbot_plugins_top/
-dsh桌面端/
-其他环境依赖/
-snowluma相关/
 
-# === 第三方库（不需要传）===
-wechat-adapter-review/
-wushu-ops-review/
-
-# === 缓存 / 日志 / 临时文件 ===
+# === 缓存 / 日志 ===
 __pycache__/
-*.pyc
-*.pyo
-.workbuddy/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 *.log
 logs/
-relay.err.log
-relay.out.log
-wechat.err.log
-wechat.out.log
-startup.err.log
-startup.out.log
-local-panel.err.log
-local-panel.out.log
 
-# === 备份 ===
+# === 备份与构建产物 ===
 *.bak
 *.bak-*
+*.zip
+*.tar.gz
+*.tgz
 backups/
+output/
 output/before-*/
 output/backup-*.py
 
-# === 媒体素材（太大）===
-TTS素材/
-知识库/
-云端部署提示词/
-人格提示词及表情包/
-
-# === 管理面板构建产物 / 截图 ===
-管理面板/output/playwright/
-管理面板/output/workbench-preview/
-管理面板/output/*.png
-管理面板/output/backup-*/
-
-# === 本地 TTS 客户端运行时（含服务器 token，不能传）===
-管理面板/本地TTS/config.json
-*.pid
-
-# === 临时工作区 / 测试音频 / 模型权重（体积大）===
-_tmp/
-tmp/
-review/
-voicetest/
-*.pth
-*.ckpt
-*.index
-
-# === 杂项 ===
-nul
+# === IDE / 操作系统杂项 ===
+.idea/
+.vscode/
 .DS_Store
 Thumbs.db
+desktop.ini

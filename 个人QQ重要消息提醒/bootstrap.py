@@ -1,5 +1,6 @@
 """Prepare encrypted credentials and account-specific loopback OneBot config."""
 import json
+import os
 import secrets
 from pathlib import Path
 
@@ -8,8 +9,11 @@ import paramiko
 from vault import seal
 
 root=Path(__file__).parent
+host=os.environ.get('BOT_SSH_HOST')
+key_path=os.environ.get('BOT_SSH_KEY')
+if not host or not key_path:raise RuntimeError('Set BOT_SSH_HOST and BOT_SSH_KEY before running bootstrap')
 client=paramiko.SSHClient();client.load_system_host_keys();client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-client.connect('101.132.104.41',username='root',key_filename=str(root.parent/'.robot-nopass.pem'),timeout=12)
+client.connect(host,username='root',key_filename=key_path,timeout=12)
 try:
     sftp=client.open_sftp()
     with sftp.open('/opt/bot-stack/astrbot/data/cmd_config.json','rb') as handle:

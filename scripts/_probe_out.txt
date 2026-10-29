@@ -1,4 +1,0 @@
-HTTPS_PROXY=http://127.0.0.1:58926 HTTP_PROXY=http://127.0.0.1:58926 https_proxy=http://127.0.0.1:58926
-openssl: OpenSSL 3.5.7 9 Jun 2026
-python: 3.13.14
-OK 200 {"ok": true, "online": false, "pending": 0, "time": 1793014003.9971876}

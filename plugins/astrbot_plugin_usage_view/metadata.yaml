@@ -1,0 +1,7 @@
+name: astrbot_plugin_usage_view
+desc: 在手机聊天里随时查 token 用量与预算进度（口径同 Token成本控制（含注入），不含 MiMo/智谱）
+short_desc: 聊天查用量
+version: 1.3.0
+author: ops
+display_name: 用量查询
+astrbot_version: ">=4.25.5"

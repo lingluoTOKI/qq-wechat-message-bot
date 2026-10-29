@@ -1,0 +1,6 @@
+name: astrbot_plugin_dafeiyu_group_guard
+display_name: 群聊额度与高峰休眠
+desc: 群聊每日 ¥0.5（账单口径）+ 工作日高峰时段 09-12/14-18 休眠；私聊不受限；休眠期消息不补答。
+version: 1.0.0
+author: TOKI
+repo: local

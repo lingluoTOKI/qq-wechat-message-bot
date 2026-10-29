@@ -1,5 +1,7 @@
 ﻿# BOT 项目交接手册（大肥鱼 + 卫戍协议同人游戏服）
 
+> **2026-10-29 后续实施更新**：已启用 astrbot_plugin_request_ledger，北京时间17:20:04起按DeepSeek实际HTTP请求采集usage，并导入官方114次请求／1.261369元快照。/用量、/账单分列官方与本地记录，不再使用固定覆盖率系数。旧成本面板仍是框架运行统计。日1元预算未提高，官方快照已经超过限额，后续付费模型请求因此暂停；规则查询仍可用。导入、范围、缺口和回滚见 [实施记录](docs/插件优化审查-2026-10-29/逐请求统计与官方校正实施记录.md)。以下旧快照不可作为当前完整状态。
+
 > **用途**：给任何一个**没有历史上下文**的 AI 助手 / 协作者，在 3 分钟内建立对这套系统的正确认知，
 > 知道「文件在哪、怎么连、哪些事不能乱动、哪些坑已经踩过」。
 >
@@ -36,6 +38,8 @@
 缓存命中  全天 84.1%；**最近单次稳定 85~95%**（重启后首次 10.8% 属正常重建）✅
 单次构成  system 1.6k + tools 5.5k + 历史 7~11k + 记忆注入 1.8~3.0k（末尾，每轮未命中）
 预算      日 3,000,000 token + ¥1.0；月 5,000 万 token + ¥10；超限行为 = stop ✅
+群聊额度  每群每日 **¥0.5**（group_guard 守卫，账单估算口径）；私聊不受限 ✅
+高峰休眠  工作日 09:00–12:00、14:00–18:00 群聊静默（×2 价时段），下班自动恢复 ✅
 磁盘清理  cron 每日 04:10 跑 `clean-temp.sh`（temp 1 天前 + nginx 7 天前归档）
 ```
 
@@ -147,6 +151,7 @@ astrbot_plugin_usage_view     1.1.0 群里发「用量」查 token
 astrbot_plugin_livingmemory   长期记忆（语义召回；top_k=3、min_importance_for_retrieval=0.3，注入走 extra_user_content）
 astrbot_plugin_dafeiyu_help   说明书 1.5.0：/功能 + 真版 /ctxbudget（管理员诊断，0 token）
 astrbot_plugin_dafeiyu_daily_memory  v0.3.1 情景记忆：原话留档 + 人物画像 + 事实 + **会话标签注入**（自研）
+astrbot_plugin_dafeiyu_group_guard  v1.0.0 群聊日额度 ¥0.5 + 工作日高峰休眠（自研，见 §16）
 astrbot_plugin_dafeiyu_cover  翻唱（RVC 预设 + 直调后端）
 astrbot_plugin_dafeiyu_voice  语音（/语音开、档位 local/cloud）
 astrbot_plugin_cache_guard    1.3.0 缓存诊断：前缀哈希 + 最终 HTTP JSON 分段对比（自装）
@@ -588,7 +593,7 @@ print([x['name'] for x in d['data']])
 > **成本计法（10-29 定，旧数字作废）**：面板只记到 **71%**，**真实花费 ≈ 面板 ÷ 0.714**
 > （10-29 官方 ¥0.6949 / 76 请求，面板 ¥0.4963 / 52 请求）。官方单价 CNY：缓存 0.02、未命中 1.0、
 > 输出 4.0 / 百万 token，工作日 09–12 与 14–18 点 ×2。每次导出官方 zip 跑
-> `scripts/cost_reconcile.py <zip> --save` 更新系数（详见 §4.4 / §15.2）。
+> `scripts/cost/cost_reconcile.py <zip> --save` 更新系数（详见 §4.4 / §15.2）。
 >
 > **缓存（10-28 改造后，10-29 复核通过 ✅）**：`compression.max_turns = -1` 关掉了滑动窗口——滑窗与前缀缓存天生相斥，
 > 丢最老一轮就会让历史起点改写、20k 历史每 1~2 轮重算。system/tools 段钉死不动，
@@ -799,7 +804,7 @@ system (≈2.3k) → tools (≈2.5k) → history (15k~28k) → 本轮新消息
 | 12 | **handler 归属问题已解决** | 插件自检日志：`dg_ctxbudget_gate@main、dg_ctxbudget_capture@main、dg_ctxbudget_cmd@main、help_cmd@main`——**没有 `@ctxbudget` 残留**了 |
 | 13 | **llm_compress 至今一次都没触发** | 今日最大请求总输入 54,455，但 `should_compress` 按 messages 估算（约 49k）未过阈值 52.5k；日志里搜不到压缩调用 |
 | 14 | **dashboard 的 `anyio.EndOfStream` 报错是噪声** | 客户端主动断开导致（面板刷新/关页），不影响机器人主流程 |
-| 15 | **自有插件源码已纳入 Git** | `astrbot相关/astrbot_plugin_dafeiyu_{help,daily_memory,cover}/` + `scripts/patches/`，`.gitignore` 已放行这几个目录 |
+| 15 | **自有插件源码已纳入 Git** | `plugins/`（自有插件与 `dafeiyu_runtime`、`patches/`）+ `scripts/` 按用途分目录；第三方安装包在本地 `vendor/astrbot/`，已被 `.gitignore` 整目录排除 |
 
 ### 14.2 ❓ 不确定 / 待处理（**接手优先看这里**）
 
@@ -878,7 +883,7 @@ docker logs --since 30m astrbot 2>&1 | grep -a '本插件 handler'
 
 ### 15.2 对账折算（用户已定：只对账、不改内核）
 
-详见 §4.4。要点：**账单 ≈ 面板 ÷ 覆盖率**，当前系数 0.714。脚本 `scripts/cost_reconcile.py`，
+详见 §4.4。要点：**账单 ≈ 面板 ÷ 覆盖率**，当前系数 0.714。脚本 `scripts/cost/cost_reconcile.py`，
 历史累积在 `scripts/cost_coverage.json`。覆盖率只有 71% 不是"少算了钱"，是内核按 agent run 记账的结构性缺口；
 补到 95% 需改 AstrBot 内核，用户明确放弃。
 
@@ -949,6 +954,82 @@ B3077F0FCFC1F29CBD8B7A5C083F0434=虚拟的未来会梦到电子天依吗？
 
 ---
 
+## 16. 群聊日额度 + 高峰休眠（`dafeiyu_group_guard` v1.0.0）
+
+> 2026-10-29 20:00 上线。目标：群聊每天最多只花 ¥0.5，高峰时段（双倍价）直接不开口，私聊完全放开。
+> 实现是**独立小插件**（约 160 行），不改进程内其他插件，也不碰 AstrBot 内核。
+
+### 16.1 规则（三层，从上到下依次生效）
+
+| 顺序 | 规则 | 触发条件 | 行为 |
+|---|---|---|---|
+| 1 | **高峰休眠** | 工作日 09:00–12:00 / 14:00–18:00（北京） | 群聊不回复，发一次休眠提示；私聊照常 |
+| 2 | **群日额度** | 该群当日累计 ≥ ¥0.5（账单估算） | 当日该群不再回复，发一次额度提示；私聊照常 |
+| 3 | 全局兜底 | cost_control `global_daily` ¥1.0 | 整机停（既有逻辑，未改动） |
+
+- **不补答**：休眠/超额期间收到的消息直接 `stop_event()` 丢弃，**不排队**；恢复后只回新消息。
+- **额度按群独立**：群 A 花满 0.5 不影响群 B；私聊不计入群额度。
+- **生效起点**：`effective_from`（默认 10-29 20:00）之后的花费才计入当天，避免上线瞬间因历史花费被静默。
+
+### 16.2 高峰时间表与恢复节点
+
+| 时段 | 起 | 止 | 倍率 |
+|---|---|---|---|
+| 上午峰 | 09:00 | **12:00（恢复）** | ×2 |
+| 平峰 | 12:00 | 14:00 | ×1 |
+| 午后峰 | 14:00 | **18:00（恢复）** | ×2 |
+| 夜间平峰 | 18:00 | 次日 09:00 | ×1 |
+
+- 每天切换 4 次：09:00 睡、12:00 醒、14:00 睡、18:00 醒。
+- **周六/周日与法定节假日全天不睡**（`peak_weekdays_only=true`）。
+- **恢复后首条请求必是冷缓存**（约 24k token ≈ **¥0.03**），属正常，不要当故障。
+
+### 16.3 配置参数（`data/plugin_data/astrbot_plugin_dafeiyu_group_guard/config.json`）
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `enabled` | true | 总开关 |
+| `group_daily_budget_cny` | 0.5 | 每群每日额度（账单估算，CNY） |
+| `private_exempt` | true | 私聊跳过全部限制 |
+| `panel_to_bill` | 1.0 | 花费估算系数。基数取 `supplement.db` 逐行 `cost_amount`（≈官方 ±10%）；若改用面板展示值需设 0.714 |
+| `effective_from` | `2026-10-29T20:00:00+08:00` | 当日额度起算点（含时区） |
+| `peak_sleep` | true | 高峰休眠开关 |
+| `peak_windows` | `[[9,12],[14,18]]` | 高峰窗口（北京时间，左闭右开） |
+| `peak_weekdays_only` | true | 仅工作日 |
+| `notice_peak` / `notice_budget` | 见文件 | 提示文案，`{end}` / `{budget}` 会被替换 |
+
+**改配置不用重启**：守卫每次请求都重读 `config.json`；改**代码**才要 `docker restart astrbot`。
+
+### 16.4 异常处理
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| 群里完全不回话，也没提示 | 当日额度或高峰判定命中，但提示已被本窗口去重 | 看 `docker logs astrbot \| grep group_guard` 是否有「群额度用尽」；否则查 `enabled` |
+| 高峰时段仍然回话 | ① 非工作日 ② 容器时钟偏移 ③ `peak_sleep=false` | `docker exec astrbot date` 对时；检查 `timedatectl` |
+| 额度明明没用完却停了 | `effective_from` 写成历史时间，把当天早些时候的花费算进去了 | 改 `effective_from` 为当前时刻 |
+| 额度一直不触发 | `supplement.db` 没有新行（cost_control 未记录） | 核对 `select max(created_at) from cost_supplements` 是否随聊天增长 |
+| 私聊也被拦 | umo 判定异常（不含 `GroupMessage` 才会放行） | 看日志里的 umo 原文；确认是 `FriendMessage` |
+| 插件加载即报错 | `main.py` 语法/路径 | 重启后 `grep -Ei 'Traceback\|group_guard'` |
+
+**设计原则**：读耗时数据失败时**放行**（fail-open），只记 warning，不让守卫因数据库锁把整机卡死。
+
+### 16.5 验证命令（容器内）
+
+```bash
+# 当前时刻判定 + 各会话当日花费
+docker exec -i astrbot python3 - < /tmp/verify_guard.py
+# 期望：当前(非高峰) 回复=正常；假设 10:30 → 群聊「停止」、私聊「正常」
+```
+
+单元测试覆盖：09:00/11:59/12:00/12:30/15:00/18:00/周六/08:59 八个边界，全部 PASS。
+
+### 16.6 回滚
+
+1. 临时停用：`config.json` 里 `"enabled": false`（立即生效，无需重启）。
+2. 彻底移除：`rm -rf .../plugins/astrbot_plugin_dafeiyu_group_guard` + `docker restart astrbot`。
+
+---
+
 ## 变更记录
 
 - **2026-10-23**：初版。架构、访问方式、关键文件、已做改动、红线、常用命令。
@@ -988,7 +1069,7 @@ B3077F0FCFC1F29CBD8B7A5C083F0434=虚拟的未来会梦到电子天依吗？
 - **2026-10-29 傍晚（本版，新增 §4.4 + §15）**：
   1. **成本口径改以官方账单为准**：面板低估 11 倍（10-29 官方 ¥0.6949 / 面板 ¥0.4963），
      根因是 `price_selections` 候选价覆盖 + 内核按 agent run 记账；两处均已修。
-  2. **新增对账脚本** `scripts/cost_reconcile.py`（`--save` 累积系数），确定口径
+  2. **新增对账脚本** `scripts/cost/cost_reconcile.py`（`--save` 累积系数），确定口径
      「账单 ≈ 面板 ÷ 覆盖率」（当前 0.714）。
   3. **作废「知识库整份注入」判断**：线上 KB 仅 21 个分块、单次 ≤1.5k 字；`knowledge.md` 无人读取。
   4. **记忆**：`min_importance_for_retrieval` 0.12 → 0.3；确认记忆跨群共享（122 条同池），
@@ -996,6 +1077,8 @@ B3077F0FCFC1F29CBD8B7A5C083F0434=虚拟的未来会梦到电子天依吗？
   5. **分群**：`daily_memory` v0.3.1 注入「当前会话」标签 + 群别名 `session_labels`（两个群实测都答对）。
   6. **磁盘**：清理 3.7G（停用 snowluma 镜像/容器 + temp + nginx 归档），74% → 65%；
      新增 `clean-temp.sh` 每日 04:10 cron。
+  7. **新增 `dafeiyu_group_guard` v1.0.0（§16）**：群聊每日 ¥0.5（账单估算，按群独立）+ 工作日
+     09–12/14–18 高峰休眠；私聊完全放开；休眠/超额期消息**不补答**；配置热读取（改配置免重启）。
 
 ## 2026-10-26 内置知识库内容更新
 
