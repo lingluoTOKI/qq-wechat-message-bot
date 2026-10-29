@@ -3,9 +3,21 @@
 > **用途**：给任何一个**没有历史上下文**的 AI 助手 / 协作者，在 3 分钟内建立对这套系统的正确认知，
 > 知道「文件在哪、怎么连、哪些事不能乱动、哪些坑已经踩过」。
 >
-> **本版时间**：2026-10-28 19:10（**在 10-26 版基础上补入 10-27/10-28 两天的缓存专项改造**）
+> **本版时间**：2026-10-29 15:50（**在 10-28 版基础上补入 §14「2026-10-29 复核：确定项 / 不确定项」**）
 > **接手方式**：把本文 §12「30 秒摘要」整段贴给新对话当背景，需要细节时再让它读对应章节。
 > **如果只关心「为什么今天改成这样」**，直接看 **§13「2026-10-28 缓存专项改造纪要」**。
+> **如果只关心「现在到底哪些是确凿的、哪些还没验证」**，直接看 **§14**。
+
+### 确定性标注约定（全文通用）
+
+| 标记 | 含义 | 判定标准 |
+|---|---|---|
+| ✅ **已验证** | 有实测数据或可复现的日志/接口读数支撑 | provider_stats 真实计费口径、CacheGuard wire 分段对比、面板 API 返回值 |
+| 🟡 **推断** | 现象与证据吻合，但缺直接验证 | 例如"命中率提升主要由关滑窗带来"——方向确定，归因比例未做对照实验 |
+| ❓ **未验证 / 不确定** | 只是假设，或已知有异常但原因未定位 | **接手时优先处理这些** |
+| ⛔ **已作废** | 曾是当时的结论，现已被推翻 | 见 §13.5 与各节的"作废"标注 |
+
+> 规则：**不确定的结论不要写进"怎么改"里当依据**。§14 的两张表就是为此存在的。
 
 ---
 
@@ -19,13 +31,13 @@
 域名      game.lingluotoki.dpdns.org  →  101.132.104.41
 机器人    Docker 容器 astrbot（soulter/astrbot:pinned-4.29.3），端口 6185(WebUI)
 游戏服    systemd stronghold(3000) + stronghold-3001(3001)，均 active
-今日用量  151 请求 / 177.6 万 token / ¥0.88 / 日限 ¥1.0
-缓存命中  全天累计 73.8%；**改造后单轮稳定 90~92%**（改造前只有 25~65%）
-预算      日 2,000,000 token + ¥1.0；月 5,000 万 token + ¥10；超限行为 = stop（直接停回复）
+今日用量  61 请求 / 205 万 token / ¥0.594（2026-10-29 截至 15:35）✅
+缓存命中  全天 84.1%；**最近单次稳定 85~95%**（重启后首次 10.8% 属正常重建）✅
+预算      日 3,000,000 token + ¥1.0；月 5,000 万 token + ¥10；超限行为 = stop ✅
 ```
 
-> ⚠️ 上面「全天累计 73.8%」被白天两次事故拉低（搜索风暴 + 滑窗重算）。
-> **判断现在好不好，看最近 5 次请求即可**，别看累计值。
+> ⚠️ 「全天 84.1%」是 10-29 累计值；**判断现在好不好，看最近 5 次请求**（`provider_stats` 口径）。
+> 10-28 全天只有 73.8%，因为白天有搜索风暴 + 滑窗重算两次事故；改造是 17:19 之后才生效的。
 
 **接手时必须知道的三件事**：
 1. 这台机器只有 3.5GB 内存、无 GPU，**重启代价很高**（swap 颠簸、SSH 卡死、踢玩家）。
@@ -84,7 +96,7 @@ QQ 群 ←→ 大肥鱼（AstrBot 容器）
 游戏服侧：
   nginx(:80/:443)
     ├─ stronghold.service      :3000  主服 6人
-    ├─ stronghold-3001.service :3001  联盟服 4人
+    ├─ stronghold-3001.service :3001  契约服 4人
     ├─ stronghold-control      observe.py 内存监控
     └─ stronghold-bot-proxy    bot_proxy.py 只读状态桥
 ```
@@ -93,7 +105,7 @@ QQ 群 ←→ 大肥鱼（AstrBot 容器）
 |---|---|---|---|
 | AstrBot | Docker `astrbot` | 6185 WebUI / 6199 | 镜像 `soulter/astrbot:pinned-4.29.3`（**pin 死，别随便升级**） |
 | 游戏主服 | systemd `stronghold` | 3000 | 入口 `/root/stronghold/server/net.js` |
-| 游戏联盟服 | systemd `stronghold-3001` | 3001 | MOD 定制 |
+| 游戏契约服 | systemd `stronghold-3001` | 3001 | MOD 定制 |
 | 内存监控 | systemd `stronghold-control` | — | `/opt/stronghold-stability/observe.py` |
 | 只读状态桥 | systemd `stronghold-bot-proxy` | 172.18.0.1:31999 | 机器人查宿主机状态唯一通道 |
 | **本地语音代理** | systemd `local-tts` | 0.0.0.0:32000 | 给本机 GPT-SoVITS 派任务，详见 §6 |
@@ -240,6 +252,11 @@ if (persona and persona.get("tools") is None) or not persona:
 需要等群里有人说话，用 `astrbot_plugin_cacheprobe` 的调用栈回溯抓出调用方。
 
 ### 5.2 诊断工具（都在 `F:\github\BOT用\scripts\`）
+
+> **2026-10-29 状态**：下面这些脚本仍可用，但**主力已换成 CacheGuard 1.3.0**（线上插件，
+> 群里发 `/缓存状态` / `/缓存断点` / `/缓存链路` 就能看，wire 级分段对比，比离线脚本准）。
+> `astrbot_plugin_cacheprobe` 已**删除**（它当时 dump 的 320K 聊天记录是安全隐患）；
+> 它的能力已被 CacheGuard 覆盖。
 
 | 脚本 | 用途 |
 |---|---|
@@ -425,10 +442,11 @@ AstrBot v4.29.3 有个 bug：预算超限走「跳过 LLM」路径时
 | 6 | 参考音频只有 3.02 秒 | 低 | 在 GPT-SoVITS 建议下限（3~10s）。若音色不稳，换 5~10 秒干声会明显改善。 |
 | 7 | 知识库 `kb.db` 仍空 | 低 | AstrBot 内置 RAG 从未接入文档；当前 `faq.json` 关键词直答已够用。 |
 | 8 | 游戏 AI 队友「变肥鱼」 | 最低 | 游戏插件系统禁止改服务端逻辑，只能动 `lobby.js`/`botEmotes.js`，须低峰重启游戏服。 |
-| 9 | **实测 `/ctxbudget`** | **高** | 新写的真版诊断还没在群里跑通一次（曾因混入类 handler 归属问题失效，已改名 `dg_ctxbudget_*` 并重启）。管理员发一次应看到真实数据；非管理员发应**完全静默**。 |
-| 10 | **金额闸门 ¥1.0 与 token 闸门口径不一致** | **高** | 18:00 触顶后机器人静默装死 6 次且无提示。二选一：金额上限抬到 ¥1.5；或关掉金额闸门只留 token 闸门（token 口径准）。见 §13.6-4。 |
+| 9 | **修 `/ctxbudget` 的管理员判定** | **高** | 20+ 次调用零回复、零 LLM 请求 → 被框架命令处理器接管后，内部管理员判定返回 False。`_is_admin()` 的三个候选值到底哪个与 `474496195`/`D3EB1FC…` 不匹配**未定位**。详见 §14.2-1。 |
+| 10 | **金额闸门 ¥1.0 与 token 闸门口径不一致** | **高** | 10-29 15:35 已用 ¥0.594/¥1.0；10-28 18:02 触顶后机器人**静默装死** 6 次且无提示。token 闸门已被抬到 300 万，金额闸门未抬。见 §13.6-4。 |
 | 11 | **确认群管插件是否有意禁用** | 中 | `astrbot_plugin_group_guardian` 禁用中 → 撤回/禁言/踢人/群公告全部失效。见 §13.6-3。 |
-| 12 | `compression.provider_id` 改成 MiMo 的风险 | 中 | MiMo 窗口小，52k 触发的压缩请求可能失败 → 退回滑窗、命中掉回去。见 §13.6-1。 |
+| 12 | `compression.provider_id` 改成 MiMo 的风险 | 中 | MiMo 窗口小，52.5k 触发的压缩请求可能失败 → 退回滑窗、命中掉回去。**至今未触发，风险未验证**。见 §14.2-3。 |
+| 13 | 主动消息（proactive_chat）预算补丁未被观测到生效 | 低 | 补丁已上线，但今天没触发过"超限跳过"日志。见 §14.2-6。 |
 
 ---
 
@@ -523,13 +541,18 @@ print([x['name'] for x in d['data']])
 > 表情、记忆抽取、群管审核、语音语气走 `xiaomi/mimo-v2.6-flash`；向量化 `zhipu/embedding-3`；
 > 语音识别 `mimo-v2.5-asr`。
 >
-> **预算**：日 200 万 token + ¥1.0，超限直接停回复（`on_exceeded=stop`），次日 0 点刷新。
+> **预算**：日 300 万 token + ¥1.0，超限直接停回复（`on_exceeded=stop`），次日 0 点刷新。
+> ⚠️ 金额闸门 ¥1.0 与 token 闸门口径不一致，10-28 曾因触顶让机器人**静默装死**（群里表现为"怎么不回你了"）。
 >
-> **缓存（10-28 改造后）**：`compression.max_turns = -1` 关掉了滑动窗口——滑窗与前缀缓存天生相斥，
+> **缓存（10-28 改造后，10-29 复核通过 ✅）**：`compression.max_turns = -1` 关掉了滑动窗口——滑窗与前缀缓存天生相斥，
 > 丢最老一轮就会让历史起点改写、20k 历史每 1~2 轮重算。system/tools 段钉死不动，
-> 记忆/时间戳只塞最后一条消息。命中率已从 25~65% 提到 **90~92%**。
-> 内置 `web_search` 已关（¥0.005/次）、anysearch 限流 5 条、livingmemory `top_k=3`。
-> 诊断用 CacheGuard 1.3.0 的 `/缓存状态`、`/缓存断点`（wire 级分段对比）。详见 §13。
+> 记忆/时间戳只塞最后一条消息。命中率已从 25~65% 提到 **85~95%**（10-29 全天 84.1%）。
+> 内置 `web_search` 已关（10-29 全天 0 次调用）、anysearch 限流 5 条、livingmemory `top_k=3`（extra 3038→1700 token）。
+> 诊断用 CacheGuard 1.3.0 的 `/缓存状态`、`/缓存断点`（wire 级分段对比）。详见 §13、§14。
+>
+> **⚠️ `/ctxbudget` 目前是哑的**：被框架命令处理器接管后管理员判定失效，20+ 次调用零回复（❓ 原因未定位，见 §14.2-1）。
+> **文档约定**：本文用 ✅已验证 / 🟡推断 / ❓未验证 / ⛔已作废 四档标注确定性，
+> **动手前先看 §14 的两张表**，别拿"推断"当"事实"。
 >
 > **语音**：三层降级——本机 GPT-SoVITS v2Pro（洛天依 13 周年模型，RTX 4060）→ MiMo voiceclone → edge-tts。
 > 服务器起 `local-tts` 代理（32000），本机客户端**走 SSH 隧道** `http://127.0.0.1:32000` 连它
@@ -622,9 +645,9 @@ system (≈2.3k) → tools (≈2.5k) → history (15k~28k) → 本轮新消息
     "compression": {
       "max_turns": -1,                    // 关滑窗（关键！）
       "trim_turns": 1,
-      "overflow_strategy": "llm_compress",// 到 64k×0.82≈52.5k 自动 LLM 摘要
+      "overflow_strategy": "llm_compress",// 到 64k×0.82≈52.5k 自动 LLM 摘要（⚠️ 至今未触发）
       "keep_recent_ratio": 0.25,
-      "provider_id": "xiaomi/mimo-v2.6-flash",   // ← 用户后来改成了 MiMo，见 §13.6 风险
+      "provider_id": "xiaomi/mimo-v2.6-flash",   // ← 用户后来改成了 MiMo，见 §13.6-1 / §14.2-3
       "fallback_max_tokens": 16000        // 死配置（provider 自己配了 max_context_tokens）
     },
     "misc": { "max_steps": 16, "tool_schema_mode": "skills_like", ... }
@@ -636,8 +659,8 @@ system (≈2.3k) → tools (≈2.5k) → history (15k~28k) → 本轮新消息
 ```
 
 ```jsonc
-// plugin_data/astrbot_plugin_cost_control/config.json
-"budgets":      { "per_session_daily": 2000000, "global_daily": 2000000, "global_monthly": 50000000 }
+// plugin_data/astrbot_plugin_cost_control/config.json（10-29 实测）
+"budgets":      { "per_session_daily": 3000000, "global_daily": 3000000, "global_monthly": 50000000 }
 "budgets_cost": { "global_daily": 1.0, "global_monthly": 10.0 }
 ```
 
@@ -666,17 +689,20 @@ system (≈2.3k) → tools (≈2.5k) → history (15k~28k) → 本轮新消息
 7. **面板 API 热改配置有边界**：`provider_settings.web_search` 这种**每请求读**的热生效；
    `admins_id` 这类**启动/调度期持有**的不会，必须重启。
 
-### 13.6 遗留问题 / 风险（接手后优先看这里）
+### 13.6 遗留问题 / 风险（10-29 复核后的最新状态）
 
-| # | 问题 | 影响 | 建议 |
-|---|---|---|---|
-| 1 | **`compression.provider_id` 已改成 MiMo** | MiMo 的上下文窗口远小于 52k，**压缩请求本身可能超限失败**；失败会退回 `truncate_by_turns`（滑窗回来，命中又掉） | 触发压缩时盯日志；若失败率高，改回 `deepseek/deepseek-flash` |
-| 2 | `/ctxbudget` 曾有"旧 handler 残留"（注册在 `ctxbudget` 子模块） | 会与新 handler 抢同一条命令、抛属性异常 | 已把三个 handler 改名 `dg_ctxbudget_*` 并重启；**用 `/ctxbudget` 实测一次确认** |
-| 3 | **群管插件 `astrbot_plugin_group_guardian` 处于禁用状态** | 撤回 / 禁言 / 踢人 / 群公告等 20 多项功能**全部失效**（大肥鱼本来是群管理员，是会真执行的） | 确认是否有意禁用；要用就恢复（注意它会带 20 多个工具 schema 回工具段） |
-| 4 | 金额闸门 ¥1.0 与 token 闸门 200 万**口径不一致** | 18:00 就触顶，机器人**静默装死** 6 次（群里表现为"怎么不回你了"），且**拦截时不发任何提示** | 二选一：金额上限提到 ¥1.5；或关掉金额闸门只留 token（token 口径准）。另外给拦截加一句提示 |
-| 5 | `fallback_max_tokens=16000` 是死配置 | 误导人 | 改成 64000（纯文档性，不影响行为） |
-| 6 | 生日记忆串号 | 大肥鱼被记成"10月25日"（那是耀白的生日） | 情景记忆抽取规则待修（引用消息主语归属） |
-| 7 | `datetime_system_prompt=false` | 模型失去"当前时间"感知 | 若需要时间，改由插件在**消息末尾**注入（不影响前缀） |
+> **确定/不确定的完整对照见 §14**。下表只列状态变化。
+
+| # | 问题 | 影响 | 最新状态（10-29） | 建议 |
+|---|---|---|---|---|
+| 1 | **`compression.provider_id` 已改成 MiMo** | MiMo 的上下文窗口远小于 52k，**压缩请求本身可能超限失败**；失败会退回 `truncate_by_turns`（滑窗回来，命中又掉） | ❓ **至今一次都没触发**，风险未验证 | 触发压缩时盯日志；若失败率高，改回 `deepseek/deepseek-flash` |
+| 2 | `/ctxbudget` 旧 handler 残留 | 与新 handler 抢同一条命令、抛属性异常 | ✅ **已解决**：自检显示只有 `dg_ctxbudget_*@main`，无残留 | — |
+| 2b | **`/ctxbudget` 现在对管理员也是哑的** | 20+ 次调用零回复、零 LLM 请求 → 被框架命令处理器接管后，内部管理员判定返回 False | ❓ **现象已确认、原因未定位** | 见 §14.2-1：把 `_is_admin()` 的三个候选值打出来定位 |
+| 3 | **群管插件 `astrbot_plugin_group_guardian` 处于禁用状态** | 撤回 / 禁言 / 踢人 / 群公告等 20 多项功能**全部失效**（大肥鱼本来是群管理员，是会真执行的） | ❓ 仍禁用，**是否有意未确认** | 问用户。要用就恢复（会带 20 多个工具 schema 回工具段） |
+| 4 | 金额闸门 ¥1.0 与 token 闸门**口径不一致** | 10-28 18:02 触顶，机器人**静默装死** 6 次，且**拦截时不发任何提示** | ⚠️ 10-29 15:35 已用 ¥0.594/¥1.0（59%），晚高峰仍有触顶风险；token 闸门已被用户抬到 **300 万** | 金额上限抬到 ¥1.5；或关掉金额闸门只留 token；**并给拦截加一句提示** |
+| 5 | `fallback_max_tokens=16000` 是死配置 | 误导人 | ⛔ 仍未改 | 改成 64000（纯文档性，不影响行为） |
+| 6 | 生日记忆串号 | 大肥鱼被记成"10月25日"（那是耀白的生日），TOKI 当场纠正过 | ❓ 未修 | 情景记忆抽取的"引用消息主语归属"规则待修 |
+| 7 | `datetime_system_prompt=false` | 模型失去"当前时间"感知 | ✅ 有意为之（换命中率） | 若需要时间，改由插件在**消息末尾**注入（不影响前缀） |
 
 ### 13.7 什么时候必须重启 vs 热生效
 
@@ -693,6 +719,89 @@ system (≈2.3k) → tools (≈2.5k) → history (15k~28k) → 本轮新消息
 > `GET/PUT /api/v1/config-profiles/default`，body 是**完整 config dict**。
 > JWT 用 `dashboard.jwt_secret` 自签，payload 是 `{"username": ...}`（不是 `sub`）。
 > 插件重载：`POST /api/plugin/reload`（**单数**），body `{"name": "插件名"}`。
+
+---
+
+## 14. 2026-10-29 复核：哪些确定、哪些不确定
+
+> 复核时间：2026-10-29 15:50。数据源：`provider_stats`（真实计费口径）、
+> CacheGuard wire 分段对比、面板 API、插件日志、`data_v4.db` 的 `preferences`。
+> **本节是接手时的第一读物**——先知道哪些结论可以拿来改代码，哪些不能。
+
+### 14.1 ✅ 已验证（可以当事实用）
+
+| # | 结论 | 证据 |
+|---|---|---|
+| 1 | **缓存命中率现在是 85~95%** | 10-29 最近 12 次请求：81.7 / 87.2 / 87.1 / 91.0 / **10.8** / 81.0 / 88.4 / 90.2 / 90.3 / 95.0 / 89.5 / 88.3 %；全天累计 84.1% |
+| 2 | **那次 10.8% 是容器重启后的第一次请求**（前缀重建），不是故障 | 容器 15:37 重启；14:55:36 是重启后首条，14:56:31 就回到 81.0% |
+| 3 | **`max_turns=-1`（关滑动窗口）已生效** | `cmd_config.json` 读数 `compression.max_turns = -1`；CacheGuard 报 `history_shared` 持续为 `N/N→N+2`（纯追加） |
+| 4 | **历史在增长且缓存同步在涨**（不是靠压历史换命中） | 总输入 10.6k→28.7k，缓存 1.1k→25.3k |
+| 5 | **内置 `web_search` 已彻底关闭** | 10-29 全天 `使用工具：web_search_deepseek` = **0 次**；只剩 anysearch（2 次）+ anysearch_extract（1 次） |
+| 6 | **anysearch 结果限流 5 条生效** | 同上，搜索调用 3 次，未见超长结果引发的重搜 |
+| 7 | **livingmemory `top_k=3` 生效，extra 注入瘦身 44%** | CacheGuard `temp_est`：改造前 3,038 → 改造后 1,700 token/轮 |
+| 8 | **CacheGuard 1.3.0 在线可用** | wire 诊断已抓 47 次最终请求快照（`已抓取=47`），`/缓存状态`「/缓存断点」「/缓存链路」正常返回 |
+| 9 | **预算上限现为 日 300 万 token + ¥1.0** | `budgets.global_daily=3000000`、`budgets_cost.global_daily=1.0`（10-28 是 200 万，10-29 用户改到 300 万） |
+| 10 | **禁用插件共 6 个** | `preferences.inactivated_plugins`：GPT_SoVITS、voice_clone_flow、clonetts、cacheprobe、**group_guardian**、spectrecore |
+| 11 | **`admins_id` 两个 ID 都在配置里** | `["D3EB1FC111219D62DA6C12702EC52055", "474496195"]`（QQ 号 + openid 都填了） |
+| 12 | **handler 归属问题已解决** | 插件自检日志：`dg_ctxbudget_gate@main、dg_ctxbudget_capture@main、dg_ctxbudget_cmd@main、help_cmd@main`——**没有 `@ctxbudget` 残留**了 |
+| 13 | **llm_compress 至今一次都没触发** | 今日最大请求总输入 54,455，但 `should_compress` 按 messages 估算（约 49k）未过阈值 52.5k；日志里搜不到压缩调用 |
+| 14 | **dashboard 的 `anyio.EndOfStream` 报错是噪声** | 客户端主动断开导致（面板刷新/关页），不影响机器人主流程 |
+| 15 | **自有插件源码已纳入 Git** | `astrbot相关/astrbot_plugin_dafeiyu_{help,daily_memory,cover}/` + `scripts/patches/`，`.gitignore` 已放行这几个目录 |
+
+### 14.2 ❓ 不确定 / 待处理（**接手优先看这里**）
+
+| # | 问题 | 已确定的现象 | 未确定的部分 | 建议动作 |
+|---|---|---|---|---|
+| 1 | **`/ctxbudget` 对管理员也是静默的** | 10-28 18:31 → 10-29 15:14 期间群里发了 **20+ 次** `/ctxbudget`（斜杠 / 带空格 / 带 @ 各种写法），**一次都没回**；且这些消息**没有产生任何 LLM 请求**（最近一次 LLM 是 14:55:36，14:50 那条无请求）→ 说明**被框架的命令处理器接管了**，而不是落进模型 | 为什么我们的 `dg_ctxbudget_cmd` 判定"非管理员"？`_is_admin()` 内部比对 `get_sender_id()` / `message_obj.sender_id` / `message_obj.sender.user_id`，**到底哪个值与 `474496195` / `D3EB1FC…` 不匹配没定位** | 在 `_is_admin()` 里打一行 INFO，把三个候选值和判定结果打出来；跑一次 `/ctxbudget` 即可定位。**修好之前，这条命令对所有人都是哑的** |
+| 2 | **`/ctxbudget` 注册成框架命令后，非管理员静默这条设计未实测** | 设计意图是"非管理员静默、管理员给真数据"；因为 #1 没修好，**两条分支都没验证过** | 静默是否真的 0 token（没有 LLM 请求这点可确认 ✅）；管理员分支完全没跑过 | 修 #1 时一并验 |
+| 3 | **llm_compress 触发时会不会失败** | 配置 `provider_id = xiaomi/mimo-v2.6-flash`（用户 10-28 改的）；触发阈值 64,000×0.82 ≈ 52.5k | MiMo 的上下文窗口**远小于** 52.5k → 摘要请求本身可能超限。**从未触发过，所以完全未验证** | 触发时盯日志；失败会退回 `truncate_by_turns`（滑窗回来，命中会掉）。若频繁失败，把 `provider_id` 改回 `deepseek/deepseek-flash` |
+| 4 | **金额闸门 ¥1.0 是否够用** | 10-29 15:35 累计 ¥0.594（61 请求）；09 点那小时就花了 ¥0.215（峰时 ×2） | 晚高峰（14-18 点 ×2）跑满后会不会再次触顶装死——10-28 18:02 确实装死过 6 次 | 傍晚再看一下 `budgets_cost` 占比；若接近 1.0 就抬到 ¥1.5，或干脆关掉金额闸门只留 token 闸门 |
+| 5 | **群管插件被禁用是有意还是误关** | `group_guardian` 在禁用列表里 | 撤回 / 禁言 / 踢人 / 群公告**全部失效**（大肥鱼本来是群管理员，是会真执行的） | 问用户。若要恢复，注意它会带 20+ 个工具 schema 回工具段（对命中略不利，但可接受） |
+| 6 | **主动消息（proactive_chat）的预算补丁没被观测到生效** | 补丁已上线（`scripts/patches/patch_proactive_chat_budget.py`） | 今天没有触发过"超限跳过"的日志；补丁逻辑用我们自己的计价（与 cost_control 口径不同） | 观察 21:00 后的排程日志 |
+| 7 | **生日记忆串号** | 大肥鱼被记成"10月25日"（那是耀白的生日）；TOKI 当场纠正过 | 情景记忆抽取里"引用消息的主语归属"规则尚未修 | 改 `astrbot_plugin_dafeiyu_daily_memory/extract.py` 的引用归属规则 |
+| 8 | **面板的 webchat / live-chat 自测通道始终没跑通** | `POST /api/v1/chat/threads` 因 `parent_message_id` / `selected_text` 校验一直 422 | 所以**任何插件改动都只能靠群里真人发消息来验证**，没有自动化回路 | 若要自动化自测，得先把 webchat 的 thread 创建参数搞对 |
+| 9 | **"anysearch 48h 调用 0 次"已过时** | 10-29 有 3 次搜索调用 | 无 | 已在 §3.2 标注 |
+
+### 14.3 🟡 只做了推断、没做对照实验的结论
+
+| 结论 | 推断强度 | 说明 |
+|---|---|---|
+| "命中率 65% → 91% 主要是关滑窗带来的" | 🟡 中 | 方向确定（wire 证据显示断点在 messages 头部）；但**没有做单变量对照**（比如只回滚一项再看）。同批改动还有 extra 瘦身、关内置搜索、限流，三者都有贡献 |
+| "extra 瘦身后每轮省 ~1,300 token" | 🟡 中高 | CacheGuard `temp_est` 实测 3,038 → 1,700；但请求总量同期也在变 |
+| "关掉内置 web_search 不影响回答质量" | ❓ 低 | 今天只用了 3 次搜索，没有需要多次检索的复杂问题，**没有对照样本** |
+
+### 14.4 今天补做的确认动作（可复现）
+
+```bash
+# ① 看最近 12 次请求的真实命中（改任何东西之后都跑一次）
+docker exec astrbot python -c "
+import sqlite3,datetime
+c=sqlite3.connect('file:/AstrBot/data/data_v4.db?mode=ro',uri=True)
+for st,i,ca,o in list(c.execute('select start_time,token_input_other,token_input_cached,token_output from provider_stats order by start_time desc limit 12'))[::-1]:
+    d=datetime.datetime.fromtimestamp(st,datetime.timezone.utc)+datetime.timedelta(hours=8)
+    t=(i or 0)+(ca or 0)
+    print(d.strftime('%m-%d %H:%M:%S'),'总=%-6d 缓存=%-6d 未命中=%-5d 命中=%.1f%%'%(t,ca or 0,i or 0,(ca or 0)*100/t if t else 0))
+"
+
+# ② 查当前生效配置（只打键名，别 dump 值）
+docker exec astrbot python -c "
+import json
+d=json.load(open('/AstrBot/data/cmd_config.json',encoding='utf-8-sig'))
+print('compression',json.dumps(d['agent_runner']['config']['compression'],ensure_ascii=False))
+print('web_search',d['provider_settings'].get('web_search'),'| datetime',d['provider_settings'].get('datetime_system_prompt'))
+print('admins_id',d.get('admins_id'))
+c=json.load(open('/AstrBot/data/plugin_data/astrbot_plugin_cost_control/config.json',encoding='utf-8-sig'))
+print('budgets',json.dumps(c['budgets'],ensure_ascii=False)); print('budgets_cost',json.dumps(c['budgets_cost'],ensure_ascii=False))
+"
+
+# ③ 看禁用插件与插件自检
+docker exec astrbot python -c "
+import sqlite3
+c=sqlite3.connect('file:/AstrBot/data/data_v4.db?mode=ro',uri=True)
+for r in c.execute('select value from preferences where key=\"inactivated_plugins\"'): print(r[0])
+"
+docker logs --since 30m astrbot 2>&1 | grep -a '本插件 handler'
+```
 
 ---
 
@@ -721,6 +830,17 @@ system (≈2.3k) → tools (≈2.5k) → history (15k~28k) → 本轮新消息
   6. 记录 7 个今天新踩的坑（混入类 handler 不被调度、reload-all 重置工具顺序、
      plugins 目录留备份目录被当插件、qq 的 At 是方括号格式等）→ 见 §13.5。
   7. 预算口径改为日 200 万 token + ¥1.0；**遗留 4 项风险**（见 §13.6）。
+- **2026-10-29（本版，新增 §14 + 确定性标注约定）**：
+  1. **引入确定性标注约定**（✅已验证 / 🟡推断 / ❓未验证 / ⛔已作废），全文按此标注。
+  2. **新增 §14 复核**：15 条已验证结论 + 9 项不确定/待处理 + 3 条只做了推断的结论 + 可复现的确认命令。
+  3. **确认缓存改造效果持续**：10-29 全天命中 84.1%，最近单次 85~95%；重启后首次请求 10.8% 属正常重建。
+  4. **确认内置 `web_search` 全天 0 次调用**、anysearch 仅 3 次且限流生效、livingmemory `top_k=3` 生效（extra 3038→1700）。
+  5. **记录 §14.2-1 最重要的未解决问题**：`/ctxbudget` 被框架命令处理器接管后，
+     **管理员发也静默**（20+ 次调用零回复、零 LLM 请求）→ 管理员判定 `_is_admin()` 失效，原因未定位。
+  6. 确认 handler 归属问题已彻底解决（`dg_ctxbudget_*@main`，无 `@ctxbudget` 残留）。
+  7. 确认 llm_compress **至今一次未触发**（messages 未过 52.5k 阈值），MiMo 作为压缩 provider 的风险**未验证**。
+  8. 预算更新为日 300 万 token（用户 10-29 从 200 万上调）。
+  9. 澄清 dashboard `anyio.EndOfStream` 是客户端断连噪声，非故障。
 
 ## 2026-10-26 内置知识库内容更新
 
