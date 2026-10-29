@@ -1,7 +1,7 @@
 name: astrbot_plugin_dafeiyu_help
 desc: 常用命令与分类帮助：/功能 看常用入口，/功能 分类 看详细用法，/功能 全部 看完整命令列表。
 short_desc: 分类功能说明书
-version: 1.8.0
+version: 1.8.1
 author: ops
 display_name: 大肥鱼说明书
 astrbot_version: ">=4.25.5"

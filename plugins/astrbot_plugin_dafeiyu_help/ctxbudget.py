@@ -1,4 +1,4 @@
-"""真实版 /ctxbudget：只讲真话，不让模型编诊断。
+"""真实版 /上下文：只讲真话，不让模型编诊断。
 
 背景：
   群里有人反复发 /ctxbudget，而这个命令原本**并不存在** → 命令落到 LLM →
@@ -6,8 +6,9 @@
   输入 token，还把群里的人带偏。
 
 这里做三件事：
-  1. 注册真的 /ctxbudget（管理员）：返回**从 provider_stats 与捕获到的真实数据**。
-  2. 非管理员发 /ctxbudget（或不带斜杠的 ctxbudget）→ **静默忽略**，0 token、不回复。
+  1. 注册真的 /上下文（管理员；旧名 /ctxbudget 保留为别名）：
+     返回**从 provider_stats 与捕获到的真实数据**。
+  2. 非管理员发 /上下文（或不带斜杠的写法）→ **静默忽略**，0 token、不回复。
   3. 未注册的斜杠命令 → 非管理员静默忽略；管理员回一句"未知命令"（同样 0 token）。
      目的：不让任何"打错/不存在的命令"落进 LLM 白烧钱。
 
@@ -32,8 +33,9 @@ from astrbot.api.event import AstrMessageEvent
 DATA_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 STATS_DB = os.path.join(DATA_DIR, "data_v4.db")
 
-# 命令名（不含斜杠）
-CMD_CTXBUDGET = "ctxbudget"
+# 命令名（不含斜杠）：主名 + 兼容旧名
+CMD_CTXBUDGET = "上下文"
+CMD_CTXBUDGET_ALIASES = {"ctxbudget", "占用", "上下文诊断"}
 
 # 管理员判定用的 ID 列表（QQ 号 + openid 两种形式都收）。
 # 框架的 admins_id 在 qq_official 上比对的是 QQ 号，而面板里常填 openid，
@@ -331,7 +333,7 @@ async def gate(event: AstrMessageEvent, req) -> None:
         is_admin = _is_admin(event)
 
         # 我们的诊断命令：任何形式都自己处理，绝不让模型"演"
-        if tok == CMD_CTXBUDGET:
+        if tok == CMD_CTXBUDGET or tok in CMD_CTXBUDGET_ALIASES:
             event.stop_event()
             logger.info("[ctxbudget] 命中命令 token=%r admin=%s" % (tok, is_admin))
             if is_admin:

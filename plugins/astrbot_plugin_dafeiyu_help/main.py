@@ -139,7 +139,7 @@ SECTIONS = [
     ], ["余额", "账单", "花费", "token", "cost", "费用", "额度", "休眠", "高峰", "预算"]),
 
     ("管理", "管理员与诊断", [
-        ("/ctxbudget", "当前会话上下文构成（仅管理员）",
+        ("/上下文", "当前会话上下文构成（仅管理员）",
          "只读快照，0 token；普通成员发送无回复"),
         ("/关闭解析", "关闭当前会话的自动链接解析（管理员）", None),
         ("/开启解析", "恢复自动解析", None),
@@ -281,7 +281,7 @@ def _render_all(md: bool = False) -> str:
     "astrbot_plugin_dafeiyu_help",
     "ops",
     "常用命令与分类帮助：/功能 看常用入口，/功能 分类 看详细用法，/功能 全部 看完整命令列表。",
-    "1.8.0",
+    "1.8.1",
 )
 class DafeiyuHelpPlugin(Star):
     def __init__(self, context: Context, config=None):
@@ -342,8 +342,9 @@ class DafeiyuHelpPlugin(Star):
     async def dg_ctxbudget_gate(self, event: AstrMessageEvent, req):
         await _cb.gate(event, req)
 
-    @filter.command("ctxbudget")
+    @filter.command("上下文", alias={"ctxbudget", "占用", "上下文诊断"})
     async def dg_ctxbudget_cmd(self, event: AstrMessageEvent):
+        """管理员用的上下文与缓存诊断。用法：/上下文"""
         event.stop_event()
         allowed = _cb._is_admin(event)
         logger.info(f"[ctxbudget] command_handler admin={allowed}")
