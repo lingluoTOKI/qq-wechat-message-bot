@@ -26,6 +26,10 @@
   · 文案里别用 * _ ` 这几个字符（会和 markdown 语法冲突）。
 
 变更记录：
+  1.6.1  2026-10-29  新增历史图片瘦身（img_slim）：3 轮以前的内嵌大图换成一行文字，
+                     当前/近期图片照常发送。
+  1.6.0  2026-10-28  新增「自检」分类：每项能力写清怎么用、怎么判定真的通了；
+                    记忆说明补「会主动去翻记忆库」。
   1.4.0  2026-10-28  记忆类拆成两套：新增 /记忆 系列（聊天原话留档 + 人物档案），
                      与原有 /lmem（提炼后的语义记忆）分开说明，避免混为一谈。
   1.3.0  2026-10-27  QQ 放开 markdown 后改走原生 md 排版；保留纯文本渲染器做回退。
@@ -34,8 +38,12 @@
   1.1.0              「其它」类补随口聊天 / 链接解析 / 表情包。
   1.0.0              首版，7 类功能清单。
 """
+from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
+
+from . import ctxbudget as _cb
+from .img_slim import slim_history_images
 
 # 说明行：命令与描述从那第 COL 个"半宽"位置开始，保证全部左对齐（纯文本版用）
 COL = 22
@@ -97,6 +105,7 @@ SECTIONS = [
         ("/记忆 状态", "我存了多少聊天记录、认识多少人"),
         ("/记忆 找 <名字>", "我对这个人的印象：聊过多少、记得他什么"),
         ("", "聊天原话都留着，问我「上次说过什么」我去翻这些；同步/提炼由我自动做"),
+        ("", "问我「你还记得…」我会主动去记忆库里搜，不再只靠当前上下文"),
         ("/lmem status", "记忆库现在存了多少东西"),
         ("/lmem search <词>", "翻我记着的相关的事"),
         ("/lmem forget <词>", "让我忘掉某件事"),
@@ -126,6 +135,17 @@ SECTIONS = [
     ("用量", "花了多少钱", [
         ("/用量", "今日 token、花费、缓存命中率"),
     ], ["花费", "token", "cost", "费用"]),
+    ("自检", "怎么确认我真的会了", [
+        ("说「你还记得…」", "我去长期记忆库里搜；答出具体细节才算通"),
+        ("说「记住：…」", "写进长期记忆；隔几轮再问一次，应能复述"),
+        ("说「上次谁说过…」", "翻群聊原话留档；只答大概、说不出人就是没通"),
+        ("说「XX 是什么人」", "人物档案：和他聊过多少、记得他什么"),
+        ("发条 B 站链接", "应回标题和简介；原样复读说明解析没触发"),
+        ("/点歌 <歌名>", "先出候选列表，选序号后发出语音才算通"),
+        ("/翻唱", "180 秒内把音频发进来，我回成品文件才算通"),
+        ("/ctxbudget", "看工具数：正常 27 个，变了就是工具集又漂了（管）"),
+        ("", "这些都是不烧 token 或只走一轮的测法，测完发 /用量 对账"),
+    ], ["测试", "自测", "测试说明", "check", "verify"]),
     ("其它", "不用记命令", [
         ("直接说话", "叫「大肥鱼」或 @我，聊天、问问题、查资料都行"),
         ("发链接给我", "B站 / 抖音 / 小红书等自动解析成图文"),
@@ -215,12 +235,33 @@ def _render_all(md: bool = False) -> str:
     "astrbot_plugin_dafeiyu_help",
     "ops",
     "大肥鱼功能说明书：/功能 列出全部功能，/功能 分类 只看某一类（不经过模型，0 token）",
-    "1.4.0",
+    "1.6.1",
 )
 class DafeiyuHelpPlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
         self.config = config
+        # 诊断用：每个会话最近一轮请求的构成快照（只存哈希与长度）
+        self._cb_sessions = {}
+
+    # ---------- 省钱：历史大图不再每轮重发 ----------
+
+    @filter.on_llm_request(priority=98)
+    async def slim_old_images(self, event: AstrMessageEvent, req):
+        """把 3 轮以前的历史图片换成一行文字（当前/近期图片原样保留）。
+
+        实测一张 223KB 的内嵌图单条消息就 ~56k token，且会每轮重发；
+        省略后上下文回落，也不再周期性顶到 64k 触发摘要压缩。
+        """
+        try:
+            removed, chars = slim_history_images(req)
+            if removed:
+                logger.info(
+                    "[img_slim] 省略历史图片 %d 张 / %d 字符（%s）"
+                    % (removed, chars, getattr(event, "unified_msg_origin", "") or "")
+                )
+        except Exception as e:
+            logger.debug("[img_slim] 跳过：%s" % str(e)[:120])
 
     def _arg(self, event):
         s = (event.message_str or "").strip()
@@ -242,6 +283,22 @@ class DafeiyuHelpPlugin(Star):
             if len(text) <= MD_LIMIT:
                 return event.plain_result(text).use_markdown(True)
         return event.plain_result(render(False))
+
+    # ---------- 真实版 /ctxbudget + 未知命令守门人 ----------
+    # 注意：实现放在 ctxbudget.py，但**装饰器必须写在本文件（插件自身模块）**，
+    # 否则框架会把它当成别的模块的 handler，插件自己永远不会被调度到。
+
+    @filter.on_llm_request(priority=200000)
+    async def dg_ctxbudget_capture(self, event: AstrMessageEvent, req):
+        _cb.capture(event, req)
+
+    @filter.on_llm_request(priority=200001)
+    async def dg_ctxbudget_gate(self, event: AstrMessageEvent, req):
+        await _cb.gate(event, req)
+
+    @filter.command("ctxbudget")
+    async def dg_ctxbudget_cmd(self, event: AstrMessageEvent):
+        await _cb.ctxbudget_cmd(event)
 
     @filter.command("功能", alias={"帮助", "菜单", "能干啥", "会什么", "help", "说明书"})
     async def help_cmd(self, event: AstrMessageEvent):

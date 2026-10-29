@@ -1,0 +1,6 @@
+name: astrbot_plugin_wushu_ops
+display_name: 卫戍运营助手
+desc: 《卫戍协议：盟约》群运营插件：bug收集管理 + 项目FAQ自动答疑（内置游玩知识库 + LLM工具查询）；统一 HTTP/WebSocket 服务端交互（状态/在线/协议/管理运维）；等待好友加入的同盟房间倒计时自动播报
+version: v1.8.3
+author: TOKI
+repo: ""

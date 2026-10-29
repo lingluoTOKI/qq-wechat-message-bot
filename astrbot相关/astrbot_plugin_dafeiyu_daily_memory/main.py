@@ -35,7 +35,9 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools, register
 
+from . import birthday
 from .archiver import sync
+from .birthday_watch import BirthdayWatch, format_list
 from .extract import extract_for_person
 from .recall import recall_chat, recall_person, fmt_person
 from .store import Store
@@ -44,8 +46,26 @@ PLUGIN_NAME = "dafeiyu_daily_memory"
 SYNC_INTERVAL = 600  # 后台同步间隔（秒）；纯 sqlite 读写，不产生 token
 
 
-@register("astrbot_plugin_dafeiyu_daily_memory", "TOKI", "v0.1.0",
-          "大肥鱼情景记忆：原样归档群聊 + 人物档案时间线，可全文检索（与 livingmemory 独立）")
+def pick_facts(rows, limit=8):
+    """挑要注入的事实：稳定项（生日/身份类）置顶，其余按时间倒序补齐。
+
+    为什么不能直接取最新 8 条：注入原来的 SQL 是 created_at DESC LIMIT 8，
+    生日这种"很久以前说过、但永远有效"的信息会被后来十几条新事实挤出配额，
+    表现出来就是「明明记过，一问又忘了」。这里给稳定事实留出最多 4 个固定位置。
+    """
+    pinned, picked_ids = [], set()
+    for row in rows:
+        if row["category"] == "身份" or "生日" in (row["fact"] or ""):
+            pinned.append(row)
+            picked_ids.add(row["id"])
+            if len(pinned) >= 4:
+                break
+    rest = [row for row in rows if row["id"] not in picked_ids]
+    return (pinned + rest)[:limit]
+
+
+@register("astrbot_plugin_dafeiyu_daily_memory", "TOKI", "v0.3.1",
+          "大肥鱼情景记忆：原样归档群聊 + 人物档案时间线 + 生日结构化与当天祝贺，可全文检索（与 livingmemory 独立）")
 class DailyMemoryPlugin(Star):
     def __init__(self, context: Context, config=None):
         super().__init__(context)
@@ -56,6 +76,7 @@ class DailyMemoryPlugin(Star):
         self.store = Store(os.path.join(self.data_dir, "memory.db"))
         self._task = None
         self._sync_lock = asyncio.Lock()
+        self.birthdays = BirthdayWatch(self)
 
     async def initialize(self):
         # 老库升级/首次安装：people 表可能是空的（有 events 但没建过人物），
@@ -66,8 +87,15 @@ class DailyMemoryPlugin(Star):
                 await asyncio.to_thread(self._rebuild_people)
         except Exception as e:
             logger.warning("[daily_memory] 初始化重建人物失败：%s" % str(e)[:150])
+        # 老库补生日（纯 SQL + 正则，0 token）；不补的话升级前说过生日的人要等下次发言
+        try:
+            await asyncio.to_thread(self._fill_birthdays)
+        except Exception:
+            pass
         if self.config.get("auto_sync", True):
             self._ensure_loop()
+        # 生日祝贺：每天定点检查，与 10 分钟一次的同步分开跑
+        self.birthdays.start()
 
     # ---------- 后台同步 ----------
 
@@ -126,6 +154,10 @@ class DailyMemoryPlugin(Star):
                     await asyncio.to_thread(self._rebuild_people)
                 except Exception as e:
                     logger.warning("[daily_memory] 重建人物失败：%s" % str(e)[:150])
+                try:
+                    await asyncio.to_thread(self._fill_birthdays)
+                except Exception as e:
+                    logger.warning("[daily_memory] 生日回填失败：%s" % str(e)[:150])
         if err:
             logger.warning("[daily_memory] %s" % err)
         elif added:
@@ -140,13 +172,43 @@ class DailyMemoryPlugin(Star):
         finally:
             c.close()
 
+    def _fill_birthdays(self, limit=80):
+        """给还没有生日的人从归档里补一次（线程内用独立连接）。"""
+        c = self.store.clone()
+        try:
+            rows = c.db.execute(
+                "SELECT sender_id FROM people WHERE (birthday IS NULL OR birthday='')"
+                " AND msg_count>=1 LIMIT ?", (int(limit),)
+            ).fetchall()
+            filled = 0
+            for row in rows:
+                if birthday.refresh(c, row["sender_id"]):
+                    filled += 1
+            # 别人替成员报的生日（"XX 的生日是 10月25"）也扫一遍，只补空缺
+            filled += birthday.learn_from_events(c)
+            if filled:
+                logger.info("[daily_memory] 生日回填：%d 人" % filled)
+            return filled
+        finally:
+            c.close()
+
     # ---------- 命令（0 token：返回纯文本，不进模型） ----------
 
     @filter.command("记忆")
     async def mem_cmd(self, event: AstrMessageEvent, arg: str = ""):
-        """记忆：/记忆 状态 | /记忆 同步 | /记忆 回填 | /记忆 找 <人>"""
+        """记忆：/记忆 状态 | 同步 | 回填 | 找 <人> | 生日 | 生日预览 <人>"""
         event.stop_event()
         arg = (arg or "").strip()
+        if arg in ("生日", "生日列表"):
+            yield event.plain_result(format_list(self.store, self.birthdays.hour()))
+            return
+        if arg.startswith("生日预览"):
+            who = arg[4:].strip()
+            if not who:
+                yield event.plain_result("用法：/记忆 生日预览 <昵称>")
+                return
+            yield event.plain_result(await self.birthdays.preview(who))
+            return
         if arg in ("同步", "sync"):
             added, scanned, err = await self._do_sync()
             if err:
@@ -220,7 +282,7 @@ class DailyMemoryPlugin(Star):
             "· 归档聊天：%d 条\n"
             "· 认识的人：%d 位\n"
             "· 上次同步：%s（后台每 %d 分钟自动同步）\n"
-            "用法：/记忆 找 <名字>"
+            "用法：/记忆 找 <名字> · /记忆 生日 · /记忆 生日预览 <名字>"
             % (total, ppl, when, int(self.config.get("sync_interval", SYNC_INTERVAL)) // 60)
         )
 
@@ -260,12 +322,17 @@ class DailyMemoryPlugin(Star):
                     person = self.store.get_person(name)
             if person is None:
                 return
-            facts = self.store.get_facts(person["sender_id"], active_only=True, limit=8)
-            if not person["summary"] and not facts:
+            sid = person["sender_id"]
+            # 生日单独一行、不占事实配额：查库没有再现场从归档里抽一次
+            bd = (person["birthday"] or "").strip() or birthday.refresh(self.store, sid)
+            facts = pick_facts(self.store.get_facts(sid, active_only=True, limit=40))
+            if not person["summary"] and not facts and not bd:
                 return
 
             lines = ["[你记得这个人（来自你们以前的聊天，不是本次对话）]"]
             lines.append("%s：%s" % (person["name"], person["summary"] or ""))
+            if bd:
+                lines.append("· 生日：%s" % bd)
             if facts:
                 by_cat = {}
                 for f in facts:
@@ -273,14 +340,67 @@ class DailyMemoryPlugin(Star):
                 for cat, items in by_cat.items():
                     lines.append("· %s：%s" % (cat, "；".join(items[:4])))
             lines.append("（自然地用上这些，别复述成档案条；和本轮话题无关就别硬提。）")
+            self_bd = str(self.config.get("self_birthday", "10月22日") or "").strip()
+            if self_bd:
+                lines.append("[你自己的固定信息] 生日：%s。被问到就直接答，别说不知道；"
+                             "「爱吃饭的大肥鱼」是另一只同名 bot（生日 10月25），不是你。"
+                             % self_bd)
             text = "\n".join(lines)
-            if len(text) > 700:
-                text = text[:700] + "…"
+            if len(text) > 900:
+                text = text[:900] + "…"
 
             from astrbot.core.agent.message import TextPart
             req.extra_user_content_parts.append(TextPart(text=text).mark_as_temp())
         except Exception as e:
             logger.debug("[daily_memory] 注入档案失败：%s" % str(e)[:150])
+
+    # ---------- 会话标识注入（让她知道自己在哪个群说话） ----------
+
+    def _session_label(self, umo):
+        """把 UMO 变成人话：群「主群」/ 私聊。
+
+        QQ 官方适配器拿不到群名，事件里只有群 openid；别名来自配置 session_labels。
+        """
+        parts = str(umo or "").split(":")
+        kind = parts[1] if len(parts) > 1 else ""
+        ident = parts[2] if len(parts) > 2 else ""
+        aliases = {}
+        for line in str(self.config.get("session_labels", "") or "").splitlines():
+            key, sep, value = line.partition("=")
+            if sep and key.strip():
+                aliases[key.strip()] = value.strip()
+        name = aliases.get(ident) or ""
+        tail = "…" + ident[-6:] if ident else ""
+        if "Group" in kind:
+            return "群「%s」" % (name or tail)
+        if "Friend" in kind:
+            return "私聊"
+        return "会话 %s" % tail
+
+    @filter.on_llm_request(priority=95)
+    async def inject_session_label(self, event: AstrMessageEvent, req):
+        """在系统提示里固定写一行"你当前在哪个会话说话"。
+
+        为什么放 system 而不是消息末尾：system 前缀在同一会话内逐字不变，命中缓存
+        （¥0.02/M）；放末尾每次按未命中价（¥1/M）计。跨群切换也不会互相污染 ——
+        每个会话的 prefix 本来就不同，各有各的缓存条目。
+
+        同时提示"记忆可能来自别的群"，避免把 A 群发生的事说成 B 群的。
+        """
+        try:
+            if not self.config.get("inject_session_label", True):
+                return
+            label = self._session_label(getattr(event, "unified_msg_origin", ""))
+            block = (
+                "[当前会话] 你现在在%s里说话。"
+                "下面出现的长期记忆、人物档案可能来自其他群或私聊："
+                "若明显不是在当前会话发生的，不要当成这里的事，也不要主动点出别的群名。"
+                % label
+            )
+            prompt = getattr(req, "system_prompt", None)
+            req.system_prompt = (prompt.rstrip() + "\n\n" + block) if prompt else block
+        except Exception as e:
+            logger.debug("[daily_memory] 注入会话标识失败：%s" % str(e)[:150])
 
     # ---------- LLM 工具（模型自己决定何时查） ----------
 
@@ -327,4 +447,5 @@ class DailyMemoryPlugin(Star):
     async def terminate(self):
         if self._task and not self._task.done():
             self._task.cancel()
+        await self.birthdays.stop()
         self.store.close()

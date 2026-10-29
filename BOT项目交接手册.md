@@ -3,10 +3,10 @@
 > **用途**：给任何一个**没有历史上下文**的 AI 助手 / 协作者，在 3 分钟内建立对这套系统的正确认知，
 > 知道「文件在哪、怎么连、哪些事不能乱动、哪些坑已经踩过」。
 >
-> **本版时间**：2026-10-29 15:50（**在 10-28 版基础上补入 §14「2026-10-29 复核：确定项 / 不确定项」**）
+> **本版时间**：2026-10-29 16:20（**在 §14 基础上补入 §15「2026-10-29 傍晚：成本口径校正 + 记忆与分群 + 磁盘清理」**）
 > **接手方式**：把本文 §12「30 秒摘要」整段贴给新对话当背景，需要细节时再让它读对应章节。
-> **如果只关心「为什么今天改成这样」**，直接看 **§13「2026-10-28 缓存专项改造纪要」**。
-> **如果只关心「现在到底哪些是确凿的、哪些还没验证」**，直接看 **§14**。
+> **如果只关心「为什么今天改成这样」**，直接看 **§13（缓存）与 §15（成本口径 / 记忆）**。
+> **如果只关心「现在到底哪些是确凿的、哪些还没验证」**，直接看 **§14 + §15.6**。
 
 ### 确定性标注约定（全文通用）
 
@@ -27,13 +27,16 @@
 机器人与游戏服跑在**同一台阿里云轻量服务器**上。非官方同人作品，免费、严禁盈利。
 
 ```
-服务器    阿里云 SWAS 轻量，2核 / 3495MB 内存 / 无 GPU / 磁盘 40G（已用 70%）
+服务器    阿里云 SWAS 轻量，2核 / 3495MB 内存 / 无 GPU / 磁盘 40G（已用 65%，剩 14G）
 域名      game.lingluotoki.dpdns.org  →  101.132.104.41
 机器人    Docker 容器 astrbot（soulter/astrbot:pinned-4.29.3），端口 6185(WebUI)
 游戏服    systemd stronghold(3000) + stronghold-3001(3001)，均 active
-今日用量  61 请求 / 205 万 token / ¥0.594（2026-10-29 截至 15:35）✅
+今日账单  官方口径 76 请求 / ¥0.6949（10-29 全天，官方用量导出）✅
+面板显示  52 请求 / ¥0.4963 → 覆盖率 71.4%；**真实花费 ≈ 面板 ÷ 0.714**（§15.2）
 缓存命中  全天 84.1%；**最近单次稳定 85~95%**（重启后首次 10.8% 属正常重建）✅
+单次构成  system 1.6k + tools 5.5k + 历史 7~11k + 记忆注入 1.8~3.0k（末尾，每轮未命中）
 预算      日 3,000,000 token + ¥1.0；月 5,000 万 token + ¥10；超限行为 = stop ✅
+磁盘清理  cron 每日 04:10 跑 `clean-temp.sh`（temp 1 天前 + nginx 7 天前归档）
 ```
 
 > ⚠️ 「全天 84.1%」是 10-29 累计值；**判断现在好不好，看最近 5 次请求**（`provider_stats` 口径）。
@@ -141,9 +144,9 @@ QQ 群 ←→ 大肥鱼（AstrBot 容器）
 astrbot_plugin_wushu_ops      自研：FAQ 知识库、服务器状态、项目问答工具
 astrbot_plugin_cost_control   0.4.1 成本/预算/缓存诊断（attribution 极有用）
 astrbot_plugin_usage_view     1.1.0 群里发「用量」查 token
-astrbot_plugin_livingmemory   长期记忆（语义召回；top_k=3，注入走 extra_user_content）
+astrbot_plugin_livingmemory   长期记忆（语义召回；top_k=3、min_importance_for_retrieval=0.3，注入走 extra_user_content）
 astrbot_plugin_dafeiyu_help   说明书 1.5.0：/功能 + 真版 /ctxbudget（管理员诊断，0 token）
-astrbot_plugin_dafeiyu_daily_memory  情景记忆：原话留档 + 人物画像 + 事实（自研）
+astrbot_plugin_dafeiyu_daily_memory  v0.3.1 情景记忆：原话留档 + 人物画像 + 事实 + **会话标签注入**（自研）
 astrbot_plugin_dafeiyu_cover  翻唱（RVC 预设 + 直调后端）
 astrbot_plugin_dafeiyu_voice  语音（/语音开、档位 local/cloud）
 astrbot_plugin_cache_guard    1.3.0 缓存诊断：前缀哈希 + 最终 HTTP JSON 分段对比（自装）
@@ -171,7 +174,8 @@ astrbot_plugin_voice_clone_flow / astrbot_plugin_cacheprobe  🔴 已禁用/已�
 | `/opt/bot-stack/bin/local_tts_server.py` | 本地语音代理（纯标准库） |
 | `/opt/bot-stack/bin/local_tts_token.txt` | 代理访问令牌（600，勿外传） |
 | `/opt/bot-stack/bin/deps_health_notify.py` | 依赖体检 + 配置守卫（cron 每 30 分钟） |
-| `/opt/bot-stack/logs/` | `deps-health.log` / `local-tts.log` / 用量汇总 |
+| `/opt/bot-stack/bin/clean-temp.sh` | 磁盘清理（cron 每日 04:10）：`data/temp` 删 1 天前文件、nginx 删 7 天前归档；**不碰 chat_history / db / 插件数据** |
+| `/opt/bot-stack/logs/` | `deps-health.log` / `local-tts.log` / `clean-temp.log` / 用量汇总 |
 | `/opt/stronghold-stability/start.mjs` | 游戏服入口 + 准入闸参数（**改要重启游戏服、会踢人**） |
 | `/opt/stronghold-stability/observe.py` | 内存监控，`availableMB < 400` 告警 |
 | `/opt/stronghold-stability/bot_proxy.py` | 只读状态桥 |
@@ -218,6 +222,40 @@ astrbot_plugin_voice_clone_flow / astrbot_plugin_cacheprobe  🔴 已禁用/已�
 | 预算 | 日 600k/¥0.3 → **750k/¥0.45** | 今天下午曾因超限停摆 |
 | 依赖持久化 | 5 个缺失依赖装进 `pylibs/` + requirements 补声明 | 重启不再丢 |
 | pip 源 | compose 加 `PIP_INDEX_URL` 阿里云镜像 | 启动 110s → 87s（opencv 61MB 官方源会超时） |
+
+### 4.4 官方账单口径（2026-10-29 校正，**旧成本数字全部作废**）
+
+**唯一可信口径是 DeepSeek 平台「用量明细」导出的 CSV**（`amount-*.csv` + `cost-*.csv`）。
+10-29 全天三套数字对照：
+
+| 口径 | 请求 | 成本 | 状态 |
+|---|---|---|---|
+| 官方导出 | 76 | ¥0.6949 | ✅ 基准 |
+| cost_control 面板 | 52 | ¥0.4963 | 🟡 覆盖率 **71.4%** |
+| supplement.db 原始 `cost_amount` | 44 | ¥0.0549 | ⛔ 已作废（低估 11 倍） |
+
+**官方单价（CNY / 百万 token）**：缓存命中 `0.02`、未命中 `1.0`、输出 `4.0`；
+**工作日北京时间 09:00–12:00 与 14:00–18:00 全部 ×2**（0.04 / 2.0 / 8.0）。
+
+**旧数字为什么错（双重根因，已修）**：
+1. `price_selections` 指向 models.dev 候选价（≈真价 0.3 倍），**优先级压过手工 CNY 价**；
+   已加最高优先级键 `deepseek/deepseek-flash|deepseek-flash`（CNY 1.0 / 0.02 / 4.0）。
+2. AstrBot 内核按「一次 agent run」记一条统计（`_record_internal_agent_stats`），
+   而官方按每次 API 请求计费（function-calling 多步各算一次）→ 请求数天然少记。
+   已回填 `supplement.db` 928 条 `cost_amount`（含峰时 ×2、UTC→北京 +8）。
+
+**折算用法（口径已定：只对账、不改内核）**：
+
+```bash
+# 本机：从官方导出 zip 对账，并累积历史系数
+python "F:\github\BOT用\scripts\cost_reconcile.py" <官方zip> --save
+# 输出：每日 官方req / 面板req / 覆盖率 / 官方¥ / 面板¥ / 成本覆盖率 + 近 7 日平均
+```
+
+- 结果写入 `F:\github\BOT用\scripts\cost_coverage.json`（按日累积）。
+- **账单口径 ≈ 面板数字 ÷ 系数**（当前 0.714，即 ×1.40）。
+- 系数需随数据稳定：连跑 3 天以上再当准；若某天偏离 ±5%，先查插件/模型是否变动。
+- ⚠️ 脚本默认读容器内路径；本机跑要用 `COST_DB` 指到拉下来的 `supplement.db`。
 
 ---
 
@@ -440,13 +478,16 @@ AstrBot v4.29.3 有个 bug：预算超限走「跳过 LLM」路径时
 | 4 | 人格 `skills`/`tools` 是否还要精简 | 低 | `anysearch_*` 两个工具 48h 真实调用 0 次，但占 ~160 token；优先级低于 #3。 |
 | 5 | snowluma 容器要不要恢复 | 低 | 当前只有 astrbot 在跑，机器人走 qq_official 正常。**拉起前先确认不会和官方平台重复接管消息。** |
 | 6 | 参考音频只有 3.02 秒 | 低 | 在 GPT-SoVITS 建议下限（3~10s）。若音色不稳，换 5~10 秒干声会明显改善。 |
-| 7 | 知识库 `kb.db` 仍空 | 低 | AstrBot 内置 RAG 从未接入文档；当前 `faq.json` 关键词直答已够用。 |
+| 7 | ~~知识库 `kb.db` 仍空~~ | — | **已过时**：10-26 已导入 12 篇文档（21 个分块，`top_m_final=5`），单次注入 ≤1.5k 字。详见 §15.3 |
 | 8 | 游戏 AI 队友「变肥鱼」 | 最低 | 游戏插件系统禁止改服务端逻辑，只能动 `lobby.js`/`botEmotes.js`，须低峰重启游戏服。 |
 | 9 | **修 `/ctxbudget` 的管理员判定** | **高** | 20+ 次调用零回复、零 LLM 请求 → 被框架命令处理器接管后，内部管理员判定返回 False。`_is_admin()` 的三个候选值到底哪个与 `474496195`/`D3EB1FC…` 不匹配**未定位**。详见 §14.2-1。 |
-| 10 | **金额闸门 ¥1.0 与 token 闸门口径不一致** | **高** | 10-29 15:35 已用 ¥0.594/¥1.0；10-28 18:02 触顶后机器人**静默装死** 6 次且无提示。token 闸门已被抬到 300 万，金额闸门未抬。见 §13.6-4。 |
+| 10 | **金额闸门 ¥1.0 与 token 闸门口径不一致** | 中 | 10-29 全天**官方实际 ¥0.6949 / 76 请求**，占闸门 69%；峰时（14-18 点 ×2）仍可能触顶 → 触顶后机器人**静默装死**且无提示。见 §13.6-4 / §15.2 |
 | 11 | **确认群管插件是否有意禁用** | 中 | `astrbot_plugin_group_guardian` 禁用中 → 撤回/禁言/踢人/群公告全部失效。见 §13.6-3。 |
 | 12 | `compression.provider_id` 改成 MiMo 的风险 | 中 | MiMo 窗口小，52.5k 触发的压缩请求可能失败 → 退回滑窗、命中掉回去。**至今未触发，风险未验证**。见 §14.2-3。 |
 | 13 | 主动消息（proactive_chat）预算补丁未被观测到生效 | 低 | 补丁已上线，但今天没触发过"超限跳过"日志。见 §14.2-6。 |
+| 14 | **旧记忆没有来源标签**（跨群共享池） | 低 | 现无串群实证（§15.4 严格比对 24h = 0 条）；若真出现，再给 50 条活跃记忆按置信度打标（目标脚本已跑通，约 6 成可判） |
+| 15 | 删除 `soulter/astrbot:backup-4.29.1`（2.8G 回滚镜像） | 低 | 4.29.3 才跑几小时，建议观察一周再删；删了可再腾 2.8G |
+| 16 | 每日记忆插件**不能热重载**（有后台任务，terminate 会挂住 API） | 低 | 改它的配置/代码只能 `docker restart astrbot`（约 25 秒） |
 
 ---
 
@@ -544,6 +585,11 @@ print([x['name'] for x in d['data']])
 > **预算**：日 300 万 token + ¥1.0，超限直接停回复（`on_exceeded=stop`），次日 0 点刷新。
 > ⚠️ 金额闸门 ¥1.0 与 token 闸门口径不一致，10-28 曾因触顶让机器人**静默装死**（群里表现为"怎么不回你了"）。
 >
+> **成本计法（10-29 定，旧数字作废）**：面板只记到 **71%**，**真实花费 ≈ 面板 ÷ 0.714**
+> （10-29 官方 ¥0.6949 / 76 请求，面板 ¥0.4963 / 52 请求）。官方单价 CNY：缓存 0.02、未命中 1.0、
+> 输出 4.0 / 百万 token，工作日 09–12 与 14–18 点 ×2。每次导出官方 zip 跑
+> `scripts/cost_reconcile.py <zip> --save` 更新系数（详见 §4.4 / §15.2）。
+>
 > **缓存（10-28 改造后，10-29 复核通过 ✅）**：`compression.max_turns = -1` 关掉了滑动窗口——滑窗与前缀缓存天生相斥，
 > 丢最老一轮就会让历史起点改写、20k 历史每 1~2 轮重算。system/tools 段钉死不动，
 > 记忆/时间戳只塞最后一条消息。命中率已从 25~65% 提到 **85~95%**（10-29 全天 84.1%）。
@@ -559,6 +605,13 @@ print([x['name'] for x in d['data']])
 > （因为这台机器直连该域名会被 fake-ip 代理规则打断 TLS）。
 >
 > **知识库**：`/opt/bot-stack/astrbot/data/plugins/astrbot_plugin_wushu_ops/faq.json`（现读生效）。
+> ⚠️ 内置 RAG 库只有 21 个分块、`top_m_final=5`，单次最多注入 ~1.5k 字；**不是整份注入**
+> （`知识库/卫戍协议/knowledge.md` 那 17,772 字线上没有任何代码读取，是死文件，见 §15.3）。
+>
+> **记忆与分群**：长期记忆**跨群共享**（`memory_scope_mode=global`，122 条全在 `livingmemory:global`），
+> 每轮注入 1.8–3.0k token（挂在末尾，不影响缓存前缀）；`min_importance_for_retrieval` 已从 0.12 调到 **0.3**。
+> 每日情景记忆插件 v0.3.1 已注入「当前会话」标签（群别名在 `session_labels`），她已能答对自己在哪个群；
+> 近 24h 严格比对**未见串群证据**（§15.4）。
 > **成本诊断**：`plugin_data/astrbot_plugin_cost_control/supplement.db` 的 `attribution` 字段最有用。
 >
 > **红线**：① 3.5GB 小机器别乱重启（换 prompt 缓存、踢玩家）；
@@ -805,6 +858,97 @@ docker logs --since 30m astrbot 2>&1 | grep -a '本插件 handler'
 
 ---
 
+## 15. 2026-10-29 傍晚：成本口径校正 + 记忆与分群 + 磁盘清理
+
+> 这一轮的起因是**用户拿官方用量导出核对，发现面板数字差 11 倍**。
+> 结论：旧成本数字全部作废，改用官方账单；同时确认「知识库整份注入」这条旧判断是错的。
+
+### 15.1 本轮改动清单（都可回滚）
+
+| 时间 | 动作 | 结果 | 备份 |
+|---|---|---|---|
+| 14:10 | 修价格优先级 + 回填 `supplement.db` 928 条 | 面板开始按真价计费 | `config.json.bak-20261029-141049`、`supplement.db.bak-20261029-141304` |
+| 15:12 | livingmemory `min_importance_for_retrieval` 0.12 → **0.3** | 低价值闲聊不再被召回（只影响检索，不影响入库） | `..._config.json.bak-imp-20261029-151228` |
+| 15:2x | 磁盘清理 | 释放 ≈3.7G，磁盘 74% → 65% | — |
+| 15:3x | `daily_memory` **v0.3.1**：注入「当前会话」标签 | 两个群都能答对自己在哪 | 源码改动（`main.py` + `_conf_schema.json`） |
+| 15:47 | 写 `session_labels` 群别名 + 重启 | 标签显示群名而非末 6 位 ID | `astrbot_plugin_dafeiyu_daily_memory_config.json.bak-label-20261029-1549` |
+| 次日 04:10 | `clean-temp.sh` cron | temp/nginx 自动清理 | — |
+
+**注意**：这轮重启了 2 次（15:37 打补丁、15:47 写别名），每次重启后第一条请求必为冷缓存（10.8% / 4.9%），属正常重建，不要当故障。
+
+### 15.2 对账折算（用户已定：只对账、不改内核）
+
+详见 §4.4。要点：**账单 ≈ 面板 ÷ 覆盖率**，当前系数 0.714。脚本 `scripts/cost_reconcile.py`，
+历史累积在 `scripts/cost_coverage.json`。覆盖率只有 71% 不是"少算了钱"，是内核按 agent run 记账的结构性缺口；
+补到 95% 需改 AstrBot 内核，用户明确放弃。
+
+**每日例行动作**：导出官方 zip → 跑脚本 `--save` → 看系数是否漂移（±5% 内视为正常）。
+
+### 15.3 知识库注入真相（原 P0-1 作废）
+
+| 说法 | 实况 |
+|---|---|
+| 「每轮整份注入 knowledge.md 6.8k 字」 | ⛔ **假**。`knowledge.md`（17,772 字、20 章节）**线上没有任何代码读取**；`search_knowledge()` 只被测试脚本调用 |
+| 真实检索 | ✅ AstrBot 原生 KB：12 篇小 txt / 21 个 chunk，`top_m_final=5`，单次最多 ≈1.5k 字（≈1k token） |
+| FAQ 命中路径 | ✅ 直接插短答案，并**移除 `query_project_info` 工具**，只发 1 次请求 |
+
+所以「只注入命中章节」最多再省 ~700 token/次 ≈ **¥0.0007/次**，日均 30 次也就 ¥0.02/天。
+**不建议做**：跨章节问题（素材导入+省流量、房间上限+无人房清理）会答歪，代价远大于收益。
+
+### 15.4 记忆与分群（结构性事实 + 实测）
+
+**结构**：
+
+| 项 | 值 |
+|---|---|
+| 记忆范围 | `memory_scope_mode = global`，`use_session_filtering = false` |
+| `memory_atoms` | 122 条，全部 `session_id = livingmemory:global`（47 active / 72 archived / 3 expired） |
+| 参与检索的会话 | 3 个：群A `34CD…`（676 次请求）、私聊（192）、群B `B307…`（63） |
+| 每轮注入 | 2 条"最近记忆" + 最多 3 条相似记忆 ≈ **1.8–3.0k token**，挂在消息末尾（不动前缀） |
+| 召回参数 | `top_k=3`、`min_similarity=0.32`、`min_importance=0.3`（本轮已调） |
+
+**群别名（`session_labels`，改后需重启）**：
+
+```
+34CD410881D4258E0F4FC55B1CE87003=卫戍协议测试
+B3077F0FCFC1F29CBD8B7A5C083F0434=虚拟的未来会梦到电子天依吗？
+```
+
+**实测**：
+
+- ✅ 两个群问「你现在在哪个群」，都答对（15:49 实测原话）。
+- ✅ 严格比对近 24h：按「4-gram 只在一个会话出现过」的标准，检查另一会话的回复 → **命中 0 条**。
+  （群A 独有 25,606 / 群B 2,802 / 私聊 5,403 个片段）
+- 🟡 旧记忆归属试探：50 条活跃记忆按「写入时刻 ±窗口 + 文字重叠」归因 → 43 条判给群A、7 条无匹配；
+  高置信 29 条。**这只是推断，且私聊/群聊同人同话题时无法区分。**
+- ❓ 因此**暂不给旧记忆打标**（打错反而制造新错）。新记忆也还没带来源标签。
+
+**若以后真的出现串群**：优先方案是给 50 条活跃记忆打 `【群名】` / `【来源未记录】`，
+再改 livingmemory 写入路径让新记忆自带来源（需重启，且是第三方插件，升级要重打）。
+
+### 15.5 磁盘
+
+| 项 | 变化 |
+|---|---|
+| 初始 | 40G 用 28G（74%），剩 9.9G |
+| 清理 | `motricseven7/snowluma` 镜像 + 退出容器 ≈3.1G、`data/temp` 1 天前 ≈580M、nginx 7 天前归档 56M |
+| 现状 | 用 24G（**65%**），剩 **14G** |
+| 防回涨 | cron 每日 04:10（避开 03:00 备份），日志 `/opt/bot-stack/logs/clean-temp.log` |
+
+**没删**：`soulter/astrbot:backup-4.29.1`（2.8G 回滚镜像，建议观察一周）、`chat_history/images` 743M（近 7 天，聊天记录在用）。
+
+### 15.6 本轮遗留（❓）
+
+| # | 项 | 说明 |
+|---|---|---|
+| 1 | 旧记忆无来源标签 | 现无串群实证，等真出现再处理（§15.4） |
+| 2 | `backup-4.29.1` 镜像 2.8G | 观察 4.29.3 稳定后再删 |
+| 3 | `daily_memory` 不能热重载 | 有后台任务，`terminate` 会挂住 reload API（返回 500）→ 只能重启 |
+| 4 | 记忆检索阈值只调了检索侧 | 0.2 重要度的闲聊仍会入库，只是不再召回 |
+| 5 | `/ctxbudget` 仍哑、金额闸门 ¥1.0 仍紧、llm_compress 仍未触发 | 见 §14.2-1 / §13.6-4 / §14.2-3 |
+
+---
+
 ## 变更记录
 
 - **2026-10-23**：初版。架构、访问方式、关键文件、已做改动、红线、常用命令。
@@ -841,6 +985,17 @@ docker logs --since 30m astrbot 2>&1 | grep -a '本插件 handler'
   7. 确认 llm_compress **至今一次未触发**（messages 未过 52.5k 阈值），MiMo 作为压缩 provider 的风险**未验证**。
   8. 预算更新为日 300 万 token（用户 10-29 从 200 万上调）。
   9. 澄清 dashboard `anyio.EndOfStream` 是客户端断连噪声，非故障。
+- **2026-10-29 傍晚（本版，新增 §4.4 + §15）**：
+  1. **成本口径改以官方账单为准**：面板低估 11 倍（10-29 官方 ¥0.6949 / 面板 ¥0.4963），
+     根因是 `price_selections` 候选价覆盖 + 内核按 agent run 记账；两处均已修。
+  2. **新增对账脚本** `scripts/cost_reconcile.py`（`--save` 累积系数），确定口径
+     「账单 ≈ 面板 ÷ 覆盖率」（当前 0.714）。
+  3. **作废「知识库整份注入」判断**：线上 KB 仅 21 个分块、单次 ≤1.5k 字；`knowledge.md` 无人读取。
+  4. **记忆**：`min_importance_for_retrieval` 0.12 → 0.3；确认记忆跨群共享（122 条同池），
+     但严格比对近 24h **无串群证据**。
+  5. **分群**：`daily_memory` v0.3.1 注入「当前会话」标签 + 群别名 `session_labels`（两个群实测都答对）。
+  6. **磁盘**：清理 3.7G（停用 snowluma 镜像/容器 + temp + nginx 归档），74% → 65%；
+     新增 `clean-temp.sh` 每日 04:10 cron。
 
 ## 2026-10-26 内置知识库内容更新
 

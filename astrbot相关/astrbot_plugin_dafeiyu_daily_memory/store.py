@@ -139,6 +139,15 @@ CREATE TABLE IF NOT EXISTS meta (
     k TEXT PRIMARY KEY,
     v TEXT
 );
+
+-- 生日祝贺的幂等表：同一人同一年只发一次；发送失败不落库，下次还能重试
+CREATE TABLE IF NOT EXISTS birthday_greetings (
+    sender_id TEXT NOT NULL,
+    year      INTEGER NOT NULL,
+    sent_at   REAL,
+    ok        INTEGER DEFAULT 1,
+    PRIMARY KEY (sender_id, year)
+);
 """
 
 
@@ -159,7 +168,12 @@ class Store:
     def _migrate(self):
         """老库补列。SQLite 没有 ADD COLUMN IF NOT EXISTS，只能先查再加。"""
         cols = {r[1] for r in self.db.execute("PRAGMA table_info(people)")}
-        for name, ddl in (("extract_ts", "ALTER TABLE people ADD COLUMN extract_ts REAL"),):
+        for name, ddl in (
+            ("extract_ts", "ALTER TABLE people ADD COLUMN extract_ts REAL"),
+            # 生日单独成列：只此一行的信息不值得占用 8 条注入配额，
+            # 也不该跟着「最新事实」一起被挤掉（见 birthday.py 的说明）。
+            ("birthday", "ALTER TABLE people ADD COLUMN birthday TEXT"),
+        ):
             if name not in cols:
                 try:
                     self.db.execute(ddl)
@@ -390,6 +404,42 @@ class Store:
                 (fid, now, int(old)),
             )
         return fid
+
+    def get_birthday(self, sender_id):
+        r = self.db.execute(
+            "SELECT birthday FROM people WHERE sender_id=?", (sender_id,)
+        ).fetchone()
+        return (r["birthday"] if r else "") or ""
+
+    def set_birthday(self, sender_id, value):
+        """写生日（'X月Y日'）。冲突时新值直接覆盖 —— 本人后来的说法优先。"""
+        self.db.execute(
+            "UPDATE people SET birthday=?, updated_at=? WHERE sender_id=?",
+            (value or "", time.time(), sender_id),
+        )
+        self.db.commit()
+
+    def birthdays(self):
+        """所有已记录生日的人，按消息量倒序。"""
+        return self.db.execute(
+            "SELECT * FROM people WHERE birthday IS NOT NULL AND birthday<>''"
+            " ORDER BY msg_count DESC"
+        ).fetchall()
+
+    def already_greeted(self, sender_id, year):
+        r = self.db.execute(
+            "SELECT 1 FROM birthday_greetings WHERE sender_id=? AND year=? AND ok=1",
+            (sender_id, int(year)),
+        ).fetchone()
+        return bool(r)
+
+    def mark_greeted(self, sender_id, year):
+        self.db.execute(
+            "INSERT INTO birthday_greetings(sender_id, year, sent_at, ok) VALUES(?,?,?,1)"
+            " ON CONFLICT(sender_id, year) DO UPDATE SET sent_at=excluded.sent_at, ok=1",
+            (sender_id, int(year), time.time()),
+        )
+        self.db.commit()
 
     def get_facts(self, sender_id, active_only=True, limit=60):
         sql = "SELECT * FROM facts WHERE sender_id=?"

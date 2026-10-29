@@ -1,0 +1,7 @@
+name: astrbot_plugin_dafeiyu_help
+desc: 大肥鱼功能说明书：/功能 列出全部功能，/功能 分类（语音/翻唱/游戏/群管…）只看某一类。QQ 里走原生 markdown 排版，其它平台自动退回纯文本。命令直接返回文本，不经过大模型，0 token。
+short_desc: 分类功能说明书
+version: 1.6.1
+author: ops
+display_name: 大肥鱼说明书
+astrbot_version: ">=4.25.5"

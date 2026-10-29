@@ -1,0 +1,107 @@
+{
+  "auto_faq": {
+    "description": "开启群聊自动答疑（关键词命中自动回复游玩知识库）",
+    "type": "bool",
+    "default": true
+  },
+  "cooldown_seconds": {
+    "description": "同一群同一条目自动回复的冷却秒数",
+    "type": "int",
+    "default": 120
+  },
+  "monitor_enable": {
+    "description": "开启服务器自动监控（定时检测异常并分析）",
+    "type": "bool",
+    "default": true
+  },
+  "monitor_interval_seconds": {
+    "description": "监控检测间隔（秒）",
+    "type": "int",
+    "default": 120
+  },
+  "broadcast_enable": {
+    "description": "异常时主动向群里播报",
+    "type": "bool",
+    "default": true
+  },
+  "room_watch_enable": {
+    "description": "自动播报等待好友加入的同盟房间（空房倒计时后发房间号到播报目标群）",
+    "type": "bool",
+    "default": true
+  },
+  "room_watch_servers": {
+    "description": "监测哪些服的房间（逗号分隔，默认只监测契约服；可写 契约服,主服）",
+    "type": "string",
+    "default": "契约服"
+  },
+  "room_watch_interval_seconds": {
+    "description": "房间列表检查间隔（秒，最小3）",
+    "type": "int",
+    "default": 10
+  },
+  "room_watch_countdown_seconds": {
+    "description": "发现空房后的倒计时秒数，结束再复核一次才播报",
+    "type": "int",
+    "default": 3
+  },
+  "room_watch_targets": {
+    "description": "房间播报专用会话（UMO，逗号分隔）；留空沿用 broadcast_targets",
+    "type": "string",
+    "default": ""
+  },
+  "room_watch_full_players": {
+    "description": "真人达到该人数视为满员、不再播报（最大6）",
+    "type": "int",
+    "default": 6
+  },
+  "broadcast_targets": {
+    "description": "播报目标会话列表（UMO格式，逗号分隔）：个人号群聊=适配器ID:GroupMessage:群号，官方群聊=适配器ID:GroupMessage:群openid",
+    "type": "string",
+    "default": "123:GroupMessage:1104628970,大肥鱼-官方:GroupMessage:B3077F0FCFC1F29CBD8B7A5C083F0434"
+  },
+  "main_base": {
+    "description": "主服地址（HTTP 接口与 /ws 的默认来源，留空使用默认）",
+    "type": "string",
+    "default": "https://game.lingluo-toki.top"
+  },
+  "alliance_base": {
+    "description": "契约服地址",
+    "type": "string",
+    "default": "https://alliance.lingluo-toki.top"
+  },
+  "admin_token": {
+    "description": "管理令牌（对应服务端 SP_ADMIN_TOKEN）；留空则所有 /管理* 指令不可用",
+    "type": "string",
+    "default": ""
+  },
+  "local_status_base": {
+    "description": "宿主机只读状态代理地址（stronghold-control /stability）",
+    "type": "string",
+    "default": "http://172.18.0.1:31999"
+  },
+  "request_timeout_seconds": {
+    "description": "HTTP 请求超时（秒）",
+    "type": "int",
+    "default": 8
+  },
+  "request_retries": {
+    "description": "幂等 GET 请求的最大尝试次数（含首次；指数退避 + 抖动）",
+    "type": "int",
+    "default": 3
+  },
+  "ws_name": {
+    "description": "WebSocket 握手昵称（1—12 个字符，仅 /协议信息 使用）",
+    "type": "string",
+    "default": "大肥鱼"
+  },
+  "ws_heartbeat_seconds": {
+    "description": "WebSocket 心跳间隔（秒，0 关闭心跳）",
+    "type": "int",
+    "default": 20
+  },
+  "ws_url": {
+    "description": "WebSocket 地址（留空自动使用主服地址的 wss://…/ws）",
+    "type": "string",
+    "default": ""
+  }
+}

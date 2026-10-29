@@ -20,7 +20,7 @@ CATEGORIES = ["身份", "喜好", "关系", "经历", "习惯", "雷点"]
 SYSTEM = """你在维护一个 QQ 群成员的人物档案。给你的是这个人在群里的发言（可能还有别人对他的评价）。
 
 请输出**严格的 JSON**，不要 markdown 代码块，不要任何解释文字。格式：
-{"summary":"一句话画像，30字以内，第三人称","facts":[{"category":"分类","fact":"一句话事实","confidence":0.9}]}
+{"summary":"一句话画像，30字以内，第三人称","birthday":"","facts":[{"category":"分类","fact":"一句话事实","confidence":0.9}]}
 
 抽取规则：
 1. summary：这个人是个什么样的人。只写有依据的特征，不要客套话，不要"是一个群成员"这种废话。
@@ -46,7 +46,12 @@ SYSTEM = """你在维护一个 QQ 群成员的人物档案。给你的是这个�
 7. 如果"已知事实"里已有相同信息，不要重复输出；如果新信息**推翻了**旧事实，
    在 fact 里直接写新的，并在 "supersedes" 字段给出旧事实的序号（从 0 开始）。
    例：{"category":"身份","fact":"已经工作了，在做游戏开发","confidence":0.9,"supersedes":[2]}
-8. 最多 8 条 facts。挑最有信息量的。"""
+8. 最多 8 条 facts。挑最有信息量的。**身份类（生日/职业/城市）优先占位**——
+   这类信息一旦丢失后面很难补回来，喜好类可以少写。
+9. 生日单独填 "birthday" 字段：本人明确说过完整日期时写 "X月Y日"（例："11月7日"），
+   并同时输出一条 {"category":"身份","fact":"生日是11月7日","confidence":0.95}。
+   "你的生日是…"是在给机器人/别人定生日，不算本人；不确定是本人就留空字符串。
+   「爱吃饭的大肥鱼」「大肥鱼」都是机器人，它们的生日永远不算本人。"""
 
 
 _PLACEHOLDER = re.compile(r"^(?:\s*\[(?:表情|图片|语音|视频|文件|闪照)\]\s*)+$")
@@ -195,7 +200,8 @@ def _clip(events, max_chars=3600, me_id=None):
     return "\n".join(out)
 
 
-def build_prompt(person_name, events, existing_facts, n_messages=None, me_id=None):
+def build_prompt(person_name, events, existing_facts, n_messages=None, me_id=None,
+                 key_lines=None):
     parts = ["【这个人】%s" % person_name]
     parts.append("（下面聊天里「本人」= %s，「大肥鱼」= 群里的机器人，其余是群友。"
                  "别人对本人说的话也是重要线索。）" % person_name)
@@ -203,6 +209,10 @@ def build_prompt(person_name, events, existing_facts, n_messages=None, me_id=Non
         parts.append("\n【已知事实（按序号，用于判断重复/更新）】")
         for i, f in enumerate(existing_facts):
             parts.append("%d. [%s] %s" % (i, f["category"] or "其他", f["fact"]))
+    if key_lines:
+        # 生日这类信息可能被 _clip 的头部/尾部裁剪丢掉，所以单独再列一遍
+        parts.append("\n【本人明确说过的生日/出生相关原话（务必判断主语是谁）】")
+        parts.extend(key_lines)
     parts.append("\n【聊天记录】")
     parts.append(_clip(events, me_id=me_id))
     if n_messages:
@@ -276,7 +286,21 @@ async def extract_for_person(context, store, person, provider_id, k_mine=40,
         return 0, False, "没有该成员的发言"
 
     existing = store.get_facts(sid, active_only=True, limit=40)
-    prompt = build_prompt(person["name"], events, existing, me_id=sid)
+    # 生日/出生相关原话单独再喂一遍：它很可能落在 _clip 被裁掉的中间段
+    key_rows = store.db.execute(
+        "SELECT * FROM events WHERE sender_id=? AND role='user' AND is_self=0"
+        " AND (content LIKE '%生日%' OR content LIKE '%出生%') ORDER BY ts DESC LIMIT 20",
+        (sid,),
+    ).fetchall()
+    key_lines = []
+    for row in key_rows:
+        text = _clean(row["content"]).replace("\n", " ").strip()
+        if not text:
+            continue
+        when = time.strftime("%m-%d %H:%M", time.gmtime(float(row["ts"]) + 8 * 3600))
+        key_lines.append("[%s] 本人: %s" % (when, text[:120]))
+    prompt = build_prompt(person["name"], events, existing, me_id=sid,
+                          key_lines=key_lines)
 
     from .llm_client import ask
     try:
@@ -318,6 +342,18 @@ async def extract_for_person(context, store, person, provider_id, k_mine=40,
         store.add_fact(sid, fact, cat, conf, source="llm", source_ref=provider_id,
                        supersedes=sup)
         added += 1
+
+    # 生日落独立列：即使模型没写进 facts，也不会被 8 条配额挤掉
+    from .birthday import normalize as normalize_birthday
+    birthday = normalize_birthday(data.get("birthday"))
+    if not birthday:
+        for row in store.get_facts(sid, active_only=True, limit=12):
+            if "生日" in (row["fact"] or ""):
+                birthday = normalize_birthday(row["fact"])
+                if birthday:
+                    break
+    if birthday:
+        store.set_birthday(sid, birthday)
 
     summary = str(data.get("summary") or "").strip()
     changed = False
