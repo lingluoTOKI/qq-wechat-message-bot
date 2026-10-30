@@ -1,0 +1,290 @@
+{
+  "tools": {
+    "persona": [
+      "find_music",
+      "deliver_music",
+      "query_project_info",
+      "get_server_status",
+      "search_memes",
+      "anysearch_search",
+      "anysearch_extract",
+      "recall_long_term_memory",
+      "read_memory_evidence",
+      "memorize_long_term_memory",
+      "recall_chat",
+      "recall_person",
+      "parse_media_url",
+      "rvc_cover",
+      "svc_cover",
+      "get_task_status",
+      "lol_esports_schedule"
+    ],
+    "assembled": [
+      "find_music",
+      "deliver_music",
+      "query_project_info",
+      "get_server_status",
+      "search_memes",
+      "anysearch_search",
+      "anysearch_extract",
+      "recall_long_term_memory",
+      "read_memory_evidence",
+      "memorize_long_term_memory",
+      "recall_chat",
+      "recall_person",
+      "parse_media_url",
+      "rvc_cover",
+      "svc_cover",
+      "get_task_status",
+      "lol_esports_schedule",
+      "astr_kb_search",
+      "astrbot_execute_shell",
+      "astrbot_shell_session",
+      "astrbot_execute_python",
+      "astrbot_file_read_tool",
+      "astrbot_file_write_tool",
+      "astrbot_file_edit_tool",
+      "astrbot_grep_tool",
+      "future_task",
+      "send_message_to_user",
+      "get_group_message_history"
+    ],
+    "semantic_unavailable": [
+      "find_music",
+      "deliver_music",
+      "query_project_info",
+      "get_server_status",
+      "anysearch_search",
+      "anysearch_extract",
+      "recall_long_term_memory",
+      "read_memory_evidence",
+      "memorize_long_term_memory",
+      "recall_chat",
+      "recall_person",
+      "parse_media_url",
+      "rvc_cover",
+      "svc_cover",
+      "get_task_status",
+      "lol_esports_schedule",
+      "astr_kb_search",
+      "astrbot_execute_shell",
+      "astrbot_shell_session",
+      "astrbot_execute_python",
+      "astrbot_file_read_tool",
+      "astrbot_file_write_tool",
+      "astrbot_file_edit_tool",
+      "astrbot_grep_tool",
+      "future_task",
+      "send_message_to_user",
+      "get_group_message_history"
+    ],
+    "appended": [
+      "astr_kb_search",
+      "astrbot_execute_shell",
+      "astrbot_shell_session",
+      "astrbot_execute_python",
+      "astrbot_file_read_tool",
+      "astrbot_file_write_tool",
+      "astrbot_file_edit_tool",
+      "astrbot_grep_tool",
+      "future_task",
+      "send_message_to_user",
+      "get_group_message_history"
+    ],
+    "wire_mock": [
+      {
+        "tools": [
+          "anysearch_extract",
+          "anysearch_search",
+          "astr_kb_search",
+          "astrbot_execute_python",
+          "astrbot_execute_shell",
+          "astrbot_file_edit_tool",
+          "astrbot_file_read_tool",
+          "astrbot_file_write_tool",
+          "astrbot_grep_tool",
+          "astrbot_shell_session",
+          "deliver_music",
+          "find_music",
+          "future_task",
+          "get_group_message_history",
+          "get_server_status",
+          "get_task_status",
+          "lol_esports_schedule",
+          "memorize_long_term_memory",
+          "parse_media_url",
+          "query_project_info",
+          "read_memory_evidence",
+          "recall_chat",
+          "recall_long_term_memory",
+          "recall_person",
+          "rvc_cover",
+          "send_message_to_user",
+          "svc_cover"
+        ],
+        "model": "deepseek-flash"
+      },
+      {
+        "tools": [],
+        "model": "deepseek-flash"
+      }
+    ],
+    "boundary": "actual framework helpers + actual OpenAI serialization, synthetic persona definitions and mocked HTTP; not live in-process trace",
+    "proactive_initial_tools": null
+  },
+  "corpus": {
+    "messages": 102,
+    "chars": 27278,
+    "estimated_tokens": 8395
+  },
+  "safety": {
+    "raise": {
+      "keeps_current": true,
+      "keeps_system": true,
+      "unchanged_on_failure": true
+    },
+    "empty": {
+      "keeps_current": true,
+      "keeps_system": true,
+      "unchanged_on_failure": true
+    },
+    "valid": {
+      "keeps_current": true,
+      "keeps_system": true,
+      "unchanged_on_failure": null
+    }
+  },
+  "trigger": {
+    "threshold": 0.82,
+    "main_window": 64000,
+    "main_trigger_above": 52480.0,
+    "sample23556_triggers": false
+  },
+  "default": {
+    "messages": 24,
+    "estimated_tokens": 2340,
+    "summary_chars": 562,
+    "exact_recent_messages": 21,
+    "rubric": {
+      "necessary_fact_checks": {
+        "Q1": true,
+        "Q2": true,
+        "Q3": true,
+        "Q4": false,
+        "Q5": true,
+        "Q6": true,
+        "Q7": true,
+        "Q8": true,
+        "Q9": true
+      },
+      "passed": 8,
+      "total": 9,
+      "requires_human_contradiction_review": true
+    }
+  },
+  "candidate": {
+    "messages": 24,
+    "estimated_tokens": 2375,
+    "summary_chars": 609,
+    "exact_recent_messages": 21,
+    "rubric": {
+      "necessary_fact_checks": {
+        "Q1": true,
+        "Q2": true,
+        "Q3": true,
+        "Q4": true,
+        "Q5": true,
+        "Q6": true,
+        "Q7": true,
+        "Q8": true,
+        "Q9": true
+      },
+      "passed": 9,
+      "total": 9,
+      "requires_human_contradiction_review": true
+    }
+  },
+  "paid": {
+    "reserved_ceiling_cny": 0.03649,
+    "records": [
+      {
+        "upper_bound_cny": 0.066476,
+        "status": "completed",
+        "http_status": 200,
+        "elapsed_s": 8.37,
+        "usage": {
+          "completion_tokens": 342,
+          "prompt_tokens": 5676,
+          "total_tokens": 6018,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": null
+        },
+        "response_id": "4f9bb9fc-2ba3-4273-ac12-a30966b2fe3a_37182baff4694327a530fae272f8fff9",
+        "cost_cny_no_cache_estimate": 0.00636,
+        "finish_reason": "stop"
+      },
+      {
+        "upper_bound_cny": 0.033794,
+        "status": "completed",
+        "http_status": 200,
+        "elapsed_s": 3.104,
+        "usage": {
+          "completion_tokens": 235,
+          "prompt_tokens": 2229,
+          "total_tokens": 2464,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "response_id": "4fab5e25-82e0-46fc-8c01-e5639b0f7f75_b9092cbeaac64679bb5a104084aa7867",
+        "cost_cny_no_cache_estimate": 0.002699,
+        "finish_reason": "stop"
+      },
+      {
+        "upper_bound_cny": 0.066934,
+        "status": "completed",
+        "http_status": 200,
+        "elapsed_s": 7.585,
+        "usage": {
+          "completion_tokens": 373,
+          "prompt_tokens": 5747,
+          "total_tokens": 6120,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": {
+            "cached_tokens": 4096
+          }
+        },
+        "response_id": "2bf9f862-1410-4629-b86a-892fd6f5053d_108fdad572aa42498f0824d87a49f70b",
+        "cost_cny_no_cache_estimate": 0.006493,
+        "finish_reason": "stop"
+      },
+      {
+        "upper_bound_cny": 0.034132,
+        "status": "completed",
+        "http_status": 200,
+        "elapsed_s": 5.731,
+        "usage": {
+          "completion_tokens": 216,
+          "prompt_tokens": 2261,
+          "total_tokens": 2477,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens_details": null
+        },
+        "response_id": "96f18887-b020-416a-bdb0-8a4cff5e91fe_ab52c87fb3234c1aa405e2e71a8cf5c6",
+        "cost_cny_no_cache_estimate": 0.002693,
+        "finish_reason": "stop"
+      }
+    ],
+    "billing_note": "official usage plus standard no-cache price estimate; not final invoice",
+    "test_mode": "same configured model, thinking disabled, max_tokens 1400, temperature 0; not an unmodified live provider request"
+  }
+}

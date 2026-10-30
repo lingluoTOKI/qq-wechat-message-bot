@@ -165,6 +165,11 @@ class Store:
         self.db.execute('''CREATE TABLE IF NOT EXISTS birthday_affinity (
             sender_id TEXT PRIMARY KEY,score INTEGER NOT NULL CHECK(score BETWEEN 0 AND 100),
             source TEXT NOT NULL,updated_at REAL NOT NULL)''')
+        self.db.executescript('''CREATE TABLE IF NOT EXISTS fact_quality (
+            fact_id INTEGER PRIMARY KEY,status TEXT NOT NULL,reason TEXT NOT NULL,checked_at REAL NOT NULL);
+            CREATE TABLE IF NOT EXISTS profile_revisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,sender_id TEXT,old_summary TEXT,new_summary TEXT,
+            reason TEXT,created_at REAL);''')
         self._migrate()
         self.db.commit()
 
@@ -172,10 +177,31 @@ class Store:
         row=self.db.execute('SELECT score FROM birthday_affinity WHERE sender_id=?',(sender_id,)).fetchone()
         return row[0] if row else None
 
-    def set_affinity(self, sender_id, score):
+    def get_affinity_row(self, sender_id):
+        return self.db.execute(
+            'SELECT sender_id,score,source,updated_at FROM birthday_affinity WHERE sender_id=?',
+            (sender_id,)).fetchone()
+
+    def list_affinity_candidates(self, window_days=7, limit=15, min_messages=5):
+        """近期活跃、有画像、且互动次数达标的人；按最近发言倒序。"""
+        cutoff=time.time()-max(1,int(window_days))*86400
+        return self.db.execute(
+            'SELECT sender_id,name,summary,msg_count,last_seen FROM people'
+            ' WHERE last_seen>=? AND msg_count>=?'
+            ' AND summary IS NOT NULL AND TRIM(summary)!=""'
+            ' ORDER BY last_seen DESC LIMIT ?',
+            (cutoff,int(min_messages),max(1,int(limit)))).fetchall()
+
+    def get_bot_context(self, sender_id):
+        try:
+            data=json.loads(self.get_meta('person_bot_context:'+str(sender_id)) or '{}')
+            return data if isinstance(data,dict) else {}
+        except (ValueError,TypeError):return {}
+
+    def set_affinity(self, sender_id, score, source='admin_set'):
         if type(score) is not int or not 0<=score<=100:raise ValueError('好感度范围为0—100')
         self.db.execute('INSERT OR REPLACE INTO birthday_affinity VALUES(?,?,?,?)',
-                        (sender_id,score,'admin_set',time.time()))
+                        (sender_id,score,source,time.time()))
         self.db.commit()
 
     def _migrate(self):
@@ -471,7 +497,7 @@ class Store:
     def get_facts(self, sender_id, active_only=True, limit=60):
         sql = "SELECT * FROM facts WHERE sender_id=?"
         if active_only:
-            sql += " AND superseded_by IS NULL"
+            sql += " AND superseded_by IS NULL AND NOT EXISTS (SELECT 1 FROM fact_quality q WHERE q.fact_id=facts.id AND q.status='quarantined')"
         sql += " ORDER BY created_at DESC LIMIT ?"
         return self.db.execute(sql, (sender_id, int(limit))).fetchall()
 

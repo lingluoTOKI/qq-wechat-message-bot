@@ -103,5 +103,25 @@
     "description": "WebSocket 地址（留空自动使用主服地址的 wss://…/ws）",
     "type": "string",
     "default": ""
+  },
+  "game_account_platform_id": {
+    "description": "允许验证的官方 QQ 机器人实例 ID；留空禁用",
+    "type": "string",
+    "default": ""
+  },
+  "game_account_url_3000": {
+    "description": "主服内部地址；仅 HTTPS 或本机 HTTP",
+    "type": "string",
+    "default": ""
+  },
+  "game_account_url_3001": {
+    "description": "契约服内部地址；仅 HTTPS 或本机 HTTP",
+    "type": "string",
+    "default": ""
+  },
+  "game_account_bridge_key": {
+    "description": "游戏账号验证共享密钥（至少32字符，不要发群里）",
+    "type": "string",
+    "default": ""
   }
 }

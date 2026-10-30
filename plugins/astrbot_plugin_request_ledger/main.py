@@ -27,6 +27,8 @@ class RequestLedgerPlugin(Star):
         from dafeiyu_runtime import context as request_context
         importlib.reload(request_context)
         importlib.reload(usage)
+        from dafeiyu_runtime import memory
+        importlib.reload(memory)
         self.capture=Capture()
         self.capture.install()
         # Transport guard also covers tool-loop follow-up calls and direct
@@ -38,12 +40,16 @@ class RequestLedgerPlugin(Star):
     async def remember_budget_origin(self,event: AstrMessageEvent):
         from dafeiyu_runtime.session_budget import ORIGIN
         ORIGIN.set(getattr(event,'unified_msg_origin','') or '')
+        from dafeiyu_runtime.profile_quality import QUERY
+        QUERY.set(str(getattr(event,'message_str','') or ''))
 
     @filter.on_llm_request(priority=100002)
     async def budget_guard(self,event: AstrMessageEvent,req):
         try:
             from dafeiyu_runtime.session_budget import ORIGIN
             ORIGIN.set(event.unified_msg_origin)
+            from dafeiyu_runtime.profile_quality import QUERY
+            QUERY.set(str(getattr(event,'message_str','') or ''))
             from dafeiyu_runtime.usage import budget_status
             allowed,reason=await asyncio.to_thread(budget_status,origin=event.unified_msg_origin)
         except Exception:

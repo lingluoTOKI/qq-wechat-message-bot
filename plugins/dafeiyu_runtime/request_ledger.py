@@ -72,6 +72,8 @@ class Ledger:
         return identity
 
     def estimate(self, c, started, model, hit, miss, output):
+        if model=='glm-5.3-flashx':
+            return ((hit+miss)*2000+output*7000),'flashx_gross_standard_estimate_no_credit_discount'
         hour = datetime.fromtimestamp(started, TZ).replace(minute=0,second=0,microsecond=0).isoformat()
         # Exact exported unit prices are used only when all three are unique.
         rates = {}
@@ -201,8 +203,10 @@ class Ledger:
         start_day=datetime.fromtimestamp(start,TZ).date().isoformat()
         end_day=datetime.fromtimestamp(end,TZ).date().isoformat()
         with self.connect() as c:
-            rows=c.execute('SELECT * FROM charges WHERE started>=? AND started<?',(start,end)).fetchall()
-            attempts=c.execute('SELECT status,COUNT(*) n FROM attempts WHERE started>=? AND started<? GROUP BY status',(start,end)).fetchall()
+            glm=c.execute("SELECT COUNT(*),COALESCE(SUM(hit+miss+output),0),COALESCE(SUM(cost_nano),0) FROM charges WHERE started>=? AND started<? AND model='glm-5.3-flashx'",(start,end)).fetchone()
+            glm_unknown=c.execute("SELECT COUNT(*) FROM attempts WHERE started>=? AND started<? AND model='glm-5.3-flashx' AND status IN ('started','network_error','missing_usage','stream_incomplete','usage_conflict')",(start,end)).fetchone()[0]
+            rows=c.execute("SELECT * FROM charges WHERE started>=? AND started<? AND model!='glm-5.3-flashx'",(start,end)).fetchall()
+            attempts=c.execute("SELECT status,COUNT(*) n FROM attempts WHERE started>=? AND started<? AND model='deepseek-flash' GROUP BY status",(start,end)).fetchall()
             official=[dict(r) for r in c.execute('SELECT * FROM official WHERE day>=? AND day<=? ORDER BY day',(start_day,end_day))]
             tracking=float(c.execute("SELECT v FROM meta WHERE k='tracking_started'").fetchone()[0])
         out={'requests':len(rows),'hit':sum(r['hit'] for r in rows),'miss':sum(r['miss'] for r in rows),
@@ -220,6 +224,7 @@ class Ledger:
             if base and r['started']<=base['baseline']:continue
             out['estimated_cost_nano']+=r['cost_nano'] or 0
             out['estimated_tokens']+=r['hit']+r['miss']+r['output']
+        out['zhipu']={'requests':glm[0],'tokens':glm[1],'gross_cost_nano':glm[2],'unknown_usage':glm_unknown}
         return out
 
 
@@ -293,6 +298,9 @@ def format_summary(days=1, *, db=DB, legacy_db=None, config=None, detail=False):
             except Exception:lines.append('预算暂不可用')
         if data['unknown_usage'] or data['unpriced']:
             lines.append('部分请求用量或费用待核对')
+        if data['zhipu']['unknown_usage']:lines.append(f'智谱另有{data["zhipu"]["unknown_usage"]}次用量待核对')
+        if data['zhipu']['requests']:
+            g=data['zhipu'];lines.append(f'智谱FlashX：{g["tokens"]:,} Token，标准价估算¥{g["gross_cost_nano"]/NANO:.4f}（抵扣待官方账单）')
         return '\n'.join(lines)
     began=datetime.fromtimestamp(data['tracking_started'],TZ).strftime('%m-%d %H:%M:%S')
     lines=['📊 用量与账单 · '+('今天' if days==1 else f'近{days}天'),'北京时间统计；官方与本地分列，不使用覆盖率折算。']
@@ -327,5 +335,7 @@ def format_summary(days=1, *, db=DB, legacy_db=None, config=None, detail=False):
                     remaining=max(0,cap-usage['estimated_cost_nano']/NANO)
                     lines.append(f'· {label}预算剩余约 ¥{remaining:.6f} / ¥{cap:g}（预算参考口径，非账户余额）')
         except Exception:lines.append('· 预算检查暂不可用')
-    lines.append('导出生成到导入、采集启动前/中断期间仍可能有缺口；MiMo／智谱未覆盖。官方快照与所有本地请求不会直接相加。')
+    if data['zhipu']['requests']:
+        g=data['zhipu'];lines.append(f'智谱FlashX：{g["requests"]}次，{g["tokens"]:,} Token；标准价估算¥{g["gross_cost_nano"]/NANO:.6f}，资源包抵扣待官方账单。')
+    lines.append('采集前/中断期间仍可能有缺口；MiMo及其他智谱模型未覆盖。DeepSeek官方快照不包含智谱。')
     return '\n'.join(lines)

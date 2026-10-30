@@ -1030,6 +1030,373 @@ docker exec -i astrbot python3 - < /tmp/verify_guard.py
 
 ---
 
+## 17. 2026-10-30：Self-Learning 评估结论 + 自建「风格学习」插件开发规格（可交给外部 AI 实现）
+
+> 本节用途：回答「要不要用 AstrBot 市场上的 self-learning 插件」，并给出不冲突的自建方案。
+> 结论先行：**不启用第三方 self-learning；改为自建 `astrbot_plugin_dafeiyu_style`**，只做「表达风格 + 黑话 + few-shot」，
+> 记忆/回复/预算/人格一律不动。下方 §17.16 是可直接粘贴给 GPT 的实现指令。
+
+### 17.1 结论（✅ 已定）
+
+| 问题 | 结论 |
+|---|---|
+| 第三方 `self-learning` 4.4.4 要不要开 | ❌ **不在线上容器启用**；仅可在本机/独立测试容器做价值验证 |
+| 智谱能不能用 | ✅ 能，但**只用免费档**（GLM-4.5-Flash）；付费档会脱离现有账本体系 |
+| 自建是否更好 | ✅ 更适合本机：内存增量 <30MB、零双写、走现有预算门、无 AGPL 传染 |
+| 自建功能边界 | 只做风格规则 + 黑话 + 用户→机器人配对示例；**不做**记忆/情绪/好感度/图谱/回复决策 |
+
+### 17.2 第三方插件评估（`NickCharlie/astrbot_plugin_self_learning`）
+
+- 版本 4.4.4，AGPL-3.0，作者 NickMo + EterUltimate，支持 aiocqhttp / qq_official / telegram，要求 AstrBot ≥ 4.11.4（✅ 与线上 4.29.3 兼容）。
+- 代码体量约 10MB：`main.py` 24KB、`config.py` 43KB、`_conf_schema.json` 42KB、25 个 repository、17 个 ORM 模块、独立 Quart WebUI（端口 7833）。✅ 已通读主仓库。
+- 能力：消息抓取 → 双层 LLM 筛选/提炼 → 待审队列 → few-shot/黑话/社交上下文注入；另有情感/好感度/情绪演化/LightRAG/Mem0 等可选能力。
+
+**与本仓库的重叠（✅ 读代码确认）**
+
+| 能力 | 现有实现 | self-learning | 冲突 |
+|---|---|---|---|
+| 群聊留档/画像 | `daily_memory`（`memory.db` 的 `events` 表） | 自建 sqlite 再抓一遍 | **双写** |
+| Prompt 注入 | `daily_memory` 两个 `on_llm_request`（priority 96 临时 part + 95 system_prompt 会话标签） | 6 路上下文并行注入 | token 重复、口径混乱 |
+| 回复决策 | AstrBot 主流水线 | 目标驱动对话/本地回复器 | 可能抢回复 |
+| 预算 | `group_guard` + `request_ledger` | 后台学习绕过 `on_llm_request` 闸门 | **成本盲区** |
+| 人格 | 人格提示词文件人工维护 | `auto_apply_approved_persona` | 可覆盖 system_prompt |
+
+**成本体系缺口（✅ 逐文件确认）**
+
+- `dafeiyu_runtime/request_capture.py` 默认 `allowed_hosts=['api.deepseek.com']` → 其他域名请求不记账。
+- `dafeiyu_runtime/request_ledger.py` 计价只认 `deepseek-flash`；CSV 对账导入强制单账户、单 key、单模型。
+- `dafeiyu_runtime/balance.py` 余额查询写死 `api.deepseek.com/user/balance`。
+- 结论：任何非 DeepSeek 付费模型都会造成「面板/账本看不到的花费」，必须先改共享运行时，代价不值得。
+
+**资源占用（🟡 估算，需实测校准）**
+
+| 项 | 估算 |
+|---|---|
+| 内存增量 | 80–200MB（含 WebUI 线程 20–50MB）；若点「全能力依赖」再 +300MB 以上 |
+| 启动 | +5–15s（建表/补列/迁移） |
+| CPU | 静默≈0；批量学习窗口 10–60s 尖峰；2 核与游戏服同机 |
+| 磁盘 | 3–6MB/天（3 群×500 条估），月 100–180MB；剩余 14G 可用但需清理策略 |
+| 回复延迟 | `enable_llm_hooks` 单源超时默认 3.0s，最坏 +3s/条 |
+
+**线上门禁（✅ 已定，暂不执行）**：关闭状态零负担（禁用插件不 import）；若确需线上试，必须满足 `availableMB ≥ 900MB`、只装「基础能力依赖」、`db_type=sqlite`、V2 全 legacy、hook 超时 ≤1.2s、学习窗口 03:00、且先 `pip freeze` 存档（requirements 含 `fastapi>=0.124`，有升级内核依赖的风险）。
+
+### 17.3 智谱适配结论（✅ 方案 / 🟡 价格）
+
+- 接口：OpenAI 兼容，`base_url=https://open.bigmodel.cn/api/paas/v4/`；AstrBot 按 openai 兼容 provider 配为 `chat_completion` 即可。
+- 模型分工：粗筛 `GLM-4.5-Flash`（官方标称免费、128K 上下文）；提炼可选 `GLM-4.5`（输入 0.8 元/M、输出 2 元/M）。⚠️ 价格会变，以官网为准。
+- 必须关闭 thinking 模式，否则 JSON 解析容易失败（插件/自建都吃纯 JSON）。
+- 现有栈已有 `zhipu/embedding-3` ✅，账户可复用；但**智谱付费调用不在账本内**，所以只允许免费档。
+
+### 17.4 自建插件定义（✅ 需求）
+
+**名称**：`astrbot_plugin_dafeiyu_style`（显示名「大肥鱼表达风格」）
+
+**目标**：从已有群聊归档里提炼「怎么说」，以极低成本注入回复，让机器人说话像群里的人。
+
+**非目标（明确禁止）**：
+1. 不采集/不保存聊天原文（只读 `daily_memory` 的库）；
+2. 不改 `req.system_prompt`；
+3. 不自动修改人格文件；
+4. 不做回复决策、不发主动消息；
+5. 不引入 PostgreSQL / WebUI / 新 pip 依赖；
+6. 不新增任何非 DeepSeek 的付费模型调用。
+
+### 17.5 数据源（✅ 已确认）
+
+- `daily_memory` 的库：容器内 `/AstrBot/data/plugin_data/astrbot_plugin_dafeiyu_daily_memory/memory.db`
+- 只读打开：`sqlite3.connect("file:<path>?mode=ro", uri=True, timeout=5)`
+- 只用 `events` 表：
+
+| 列 | 用途 |
+|---|---|
+| `id` | 增量游标（`meta.last_event_id`） |
+| `session_id` / `group_id` | 分群（空 `group_id` = 私聊，默认跳过） |
+| `sender_id` / `sender_name` | 过滤自身（`is_self=1` 不学）与配对示例 |
+| `content` / `ts` | 文本与时间（长度 6–300 字才参与） |
+
+### 17.6 自己的库（`style.db`，与 memory.db 完全独立）
+
+```sql
+CREATE TABLE IF NOT EXISTS style_rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  group_id   TEXT NOT NULL,
+  rule       TEXT NOT NULL,
+  evidence   TEXT,
+  status     TEXT NOT NULL DEFAULT 'pending',   -- pending / approved / rejected
+  created_at REAL NOT NULL,
+  reviewed_at REAL, reviewed_by TEXT,
+  used_count INTEGER DEFAULT 0, last_used_at REAL
+);
+CREATE TABLE IF NOT EXISTS jargon (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  group_id TEXT NOT NULL, term TEXT NOT NULL, meaning TEXT NOT NULL,
+  confidence REAL DEFAULT 0.7, status TEXT NOT NULL DEFAULT 'pending',
+  created_at REAL NOT NULL,
+  UNIQUE(group_id, term)
+);
+CREATE TABLE IF NOT EXISTS few_shots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  group_id TEXT NOT NULL, user_text TEXT NOT NULL, bot_reply TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending', created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS review_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  target TEXT NOT NULL, target_id INTEGER NOT NULL,
+  action TEXT NOT NULL, actor TEXT, ts REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);  -- last_event_id / fail_days
+```
+
+规则：仅 `approved` 参与注入；`pending` 只进审批列表；`rejected` 永不注入（保留 30 天后可清理）。
+
+### 17.7 学习流程（每日一次，避开高峰）
+
+1. 03:00 触发（不依赖 cron，插件内 `asyncio` 循环 + 当前小时判断即可）。
+2. 读 `events` 中 `id > meta.last_event_id` 且 `group_id` 命中配置、`is_self=0`、长度 6–300 的消息，取 `max_batch` 条。
+3. 消息数 < `min_messages` → 本轮跳过，不推进游标。
+4. **两段式**（必须）：
+   - 粗筛：弱模型（GLM-4.5-Flash）判断哪些消息含稳定表达习惯/黑话/可复用问答，输出 `{"keep":[id...]}`；
+   - 提炼：强模型（可同一模型）输出 `{"rules":[{...}],"jargon":[{...}],"few_shots":[{...}]}`，每条必须带 `evidence` 原文片段（≤120 字）。
+5. JSON 解析失败 → 修复一次（去 ```json 包裹/截断尾部）→ 仍失败则整批丢弃并记日志，**不重试第二次**。
+6. 写入 `pending`；每群每日新规则上限 `daily_rule_cap`（默认 8），总量上限 `total_rule_cap`（默认 60），超限丢弃最旧 `pending`。
+7. 成功才推进 `meta.last_event_id`；连续 2 天失败 → 暂停学习并在日志告警。
+
+### 17.8 注入规格（✅ 复用现有写法）
+
+```python
+# 与 daily_memory 相同：临时 part，不动 system_prompt
+from astrbot.core.agent.message import TextPart
+req.extra_user_content_parts.append(TextPart(text=block).mark_as_temp())
+```
+
+- `@filter.on_llm_request(priority=97)`（daily_memory 是 96/95，这里排在其后）。
+- 内容：`<style>` 包裹，≤ `inject_rules`（5）条规则 + ≤ `inject_shots`（3）对示例，总长 ≤ `inject_max_chars`（600，约 300 token）。
+- 固定声明：「以下仅作表达参考，禁止复述、禁止改变事实与立场」。
+- `asyncio.wait_for(..., timeout=hook_timeout_s=1.2)`；任何异常 → `logger.debug` + 返回，不注入、不阻塞回复。
+- 取不到群 `group_id`（私聊）→ 不注入。
+
+### 17.9 命令（管理员，未知命令静默）
+
+| 命令 | 行为 |
+|---|---|
+| `/风格 状态` | 学习开关、游标、待审数量、最近一次运行时间与 token（只报数字） |
+| `/风格 列表` | 列出 pending（每条 `<id> <规则摘要> <证据摘要>`，每页 10 条） |
+| `/风格 通过 <id>` | 置 approved，写 `review_log` |
+| `/风格 拒绝 <id>` | 置 rejected |
+| `/风格 黑话` | 列出 pending 黑话（同一状态机） |
+| `/风格 导出` | 输出 approved 规则/黑话/示例的 JSON 文本，便于交接给外部 AI 复盘 |
+
+### 17.10 配置（`data/plugin_data/astrbot_plugin_dafeiyu_style/config.json`，热读取）
+
+```json
+{
+  "enabled": true,
+  "groups": [],
+  "hour": 3,
+  "coarse_provider_id": "<GLM-4.5-Flash 的 provider id>",
+  "refine_provider_id": "<同上或更强的免费模型>",
+  "min_msg_len": 6, "max_msg_len": 300,
+  "min_messages": 30, "max_batch": 100,
+  "daily_rule_cap": 8, "total_rule_cap": 60,
+  "inject_rules": 5, "inject_shots": 3, "inject_max_chars": 600,
+  "hook_timeout_s": 1.2,
+  "admin_only": true
+}
+```
+
+- `groups: []` 表示全部群（与 self-learning 白名单「空=全量」语义一致）；测试期必须显式只填测试群。
+- 配置读取失败时用内置默认值，不阻塞插件加载。
+
+### 17.11 预算与失败降级（✅ 必须实现）
+
+- 所有模型调用必须包在 `await guarded_model_call(ctx.llm_generate, ...)` 中（`dafeiyu_runtime/paid.py`）。
+- 捕获 `ModelBudgetBlocked` → 本轮直接跳过（日志一行，不重试）；这就是自建相对第三方插件的核心优势：**后台学习也受预算门约束**。
+- 无 `coarse_provider_id` / `refine_provider_id` → 插件只读不学，`/风格 状态` 明确提示缺 provider。
+- `memory.db` 不存在/被锁 → 静默跳过（`logger.debug`），不影响回复。
+
+### 17.12 资源预算与上线门禁
+
+| 项 | 目标值 |
+|---|---|
+| RSS 增量 | < 30MB |
+| 启动增量 | < 0.5s（不做 DB 全表扫描，只建表 + 读游标） |
+| 磁盘 | < 50MB（规则/黑话/示例，正文只存 ≤120 字证据） |
+| 每日模型调用 | 1 次/群（可合并为一次批量调用） |
+| 注入延迟 | ≤ 1.2s，超时静默 |
+| 成本 | GLM-4.5-Flash 免费档 = ¥0；若改付费档 🟡 ≈ ¥0.01–0.03/天，需先改账本 |
+
+门禁：仅当 `availableMB ≥ 600MB` 时开启；开启后 24h 内 `docker stats` RSS 增量 > 50MB 立即回滚。
+
+### 17.13 目录结构与文件职责（交给实现者）
+
+```
+plugins/astrbot_plugin_dafeiyu_style/
+├── metadata.yaml      # name/display_name/version/author 遵循现有 8 个插件格式
+├── main.py            # Star 注册、命令路由、on_llm_request、定时学习循环
+├── config.py          # 默认值 + 热读取 + 校验（不引入 pydantic）
+├── store.py           # style.db DDL 与读写（SQL 只出现在这里）
+├── learning.py        # 增量读 memory.db（只读）→ 两段式 → 写 pending
+├── prompt.py          # 粗筛/提炼提示词常量（纯文本，禁止动态拼人格）
+├── inject.py          # 规则 + 示例拼装、长度截断、超时保护
+└── (可选) README.md   # 仅写用法与回滚，不复述本手册
+tests/test_dafeiyu_style.py
+```
+
+复用约定（不要重写）：`dafeiyu_runtime.paid.guarded_model_call`、`dafeiyu_runtime.context.claim_feature`（若未来需要互斥）、`StarTools.get_data_dir(PLUGIN)`。
+
+### 17.14 测试与验收（✅ 必须过）
+
+单元测试（`tests/`，unittest）：
+1. JSON 解析：正常 / ```json 包裹 / 截断尾部 / 完全非法 → 最后一律不抛异常；
+2. 上限：规则数、单条长度、注入总字符截断；
+3. 状态机：pending→approved→注入；pending→rejected→永不注入；
+4. 断库：`memory.db` 缺失/只读打开失败 → 学习跳过且插件加载成功；
+5. 预算阻断：`guarded_model_call` 抛 `ModelBudgetBlocked` → 游标不推进、无写入；
+6. 注入异常：拼装抛错 → 回复流程不受影响。
+
+线上验收顺序：
+1. 装插件 → `/风格 状态` 有回显；
+2. 手动改 `hour` 到当前+1 分钟触发一轮（或提供 `/风格 跑一次` 管理员命令）→ 看 `pending` 出现；
+3. `/风格 通过 <id>` → 下一条相关回复的请求里出现 `<style>` 段（用 `/ctxbudget` 核对 token 增量 ≤300）；
+4. `docker stats` 看 RSS 增量、`du -sh` 看 style.db 增长；
+5. 观察 3 天无告警后，才允许把 `groups` 扩到主群。
+
+### 17.15 回滚
+
+- 关闭：`enabled=false`（立即停止注入与学习，无需重启）；
+- 卸载：删除插件目录 + `plugin_data/astrbot_plugin_dafeiyu_style/`（含 `style.db`）；
+- 不影响 `daily_memory` 的任何表（只读、无写入）；
+- 不修改 AstrBot 内核、不改 `dafeiyu_runtime`、不新增依赖 → 回滚零风险。
+
+### 17.16 直接粘贴给 GPT 的实现指令
+
+```text
+你是一名熟悉 AstrBot（版本 4.29.3，Python 3.11）插件开发的后端工程师。
+我要你在 F:\github\BOT用\plugins\ 下新建插件 astrbot_plugin_dafeiyu_style，
+严格按 F:\github\BOT用\BOT项目交接手册.md 的 §17 实现，不要自行扩展需求。
+
+硬性约束：
+1. 只读 /AstrBot/data/plugin_data/astrbot_plugin_dafeiyu_daily_memory/memory.db 的 events 表
+   （uri 只读模式），禁止再采集或保存任何聊天原文；证据字段最多存 120 字。
+2. 绝不修改 req.system_prompt；注入只用
+   from astrbot.core.agent.message import TextPart
+   req.extra_user_content_parts.append(TextPart(text=block).mark_as_temp())
+   挂 @filter.on_llm_request(priority=97)。
+3. 所有模型调用必须 await dafeiyu_runtime.paid.guarded_model_call(...)，
+   捕获 ModelBudgetBlocked 后本轮跳过，不重试。
+4. 不引入任何新 pip 依赖、不建 WebUI、不用 PostgreSQL、不自动改人格。
+5. 只消费免费档模型（GLM-4.5-Flash，provider id 来自配置）；模型输出必须纯 JSON，
+   解析失败做一次修复，仍失败整批丢弃且不推进游标。
+6. 注入内容 ≤5 条规则 + ≤3 对示例、总长 ≤600 字符、超时 1.2s，
+   异常一律静默（logger.debug），不得影响正常回复。
+7. 插件目录结构与文件职责按 §17.13；SQL 只出现在 store.py。
+8. 提供 unittest 覆盖 §17.14 的 6 个场景，并用现有 tests/ 的写法（unittest，不用 pytest）。
+9. 代码注释用中文；日志只打数量与状态，禁止打聊天正文。
+10. 完成后给出：文件清单、每个文件的职责、如何本地跑测试、如何部署与回滚。
+
+参考现有实现风格：
+- source: plugins/astrbot_plugin_dafeiyu_daily_memory/main.py（hook 与 TextPart 用法）
+- source: plugins/astrbot_plugin_dafeiyu_group_guard/main.py（配置热读取、管理员命令）
+- source: plugins/dafeiyu_runtime/paid.py（预算门）
+```
+
+### 17.17 不做的事（避免下一轮返工）
+
+- ❌ 不把 self-learning 的源码拷进本仓库（AGPL 传染；若仅线上运行，需加 `.gitignore` 并保留上游链接）。
+- ❌ 不为“情绪/好感度/影子模式/图谱”预留字段或开关（YAGNI，等真有需求再加）。
+- ❌ 不让插件自己决定“要不要回复”“回什么”，回复决策永远归主流水线。
+- ❌ 不在高峰期（工作日 09–12 / 14–18）跑学习，避免和游戏服抢 CPU。
+
+### 17.18 实现落地记录（v0.1.0，2026-10-30）
+
+> 本节是「已按 §17 写完」的存档，供外部 AI 审查。**审查目标：找 bug 与遗漏，不提新需求。**
+
+**交付文件（全部新增，未改任何现有插件）**
+
+| 文件 | 职责 |
+|---|---|
+| `plugins/astrbot_plugin_dafeiyu_style/metadata.yaml` | 元信息，格式同现有 8 个插件 |
+| `plugins/astrbot_plugin_dafeiyu_style/config.py` | 默认值 + 热读取；类型不符的项忽略；首次启动写 `config.json` |
+| `plugins/astrbot_plugin_dafeiyu_style/store.py` | `style.db` 五张表、审批状态机、配额裁剪、30 天清理；SQL 只在本文件 |
+| `plugins/astrbot_plugin_dafeiyu_style/prompt.py` | 粗筛/提炼提示词；强制 `evidence` 原文片段 |
+| `plugins/astrbot_plugin_dafeiyu_style/learning.py` | 只读 `memory.db` 增量读取 + 两段式 + JSON 解析 + 落库；不依赖 astrbot |
+| `plugins/astrbot_plugin_dafeiyu_style/inject.py` | 三类轮流取、总长截断、固定「禁止复述」声明；纯函数 |
+| `plugins/astrbot_plugin_dafeiyu_style/main.py` | 注册、`on_llm_request(priority=97)`、预算门、03:00 循环、`/风格` 命令 |
+| `tests/test_dafeiyu_style.py` | 12 条用例（unittest） |
+
+**接口契约（外部 AI 审查重点）**
+
+```text
+learning.read_events(db_path, since_id, groups, min_len, max_len, limit) -> (rows, max_id)
+learning.read_groups(db_path, limit) -> [group_id]
+learning.parse_payload(text) -> {rules[<=6], jargon[<=5], few_shots[<=3]} | None
+learning.parse_keep(text) -> set[int] | None          # None = 粗筛失败，按全保留处理
+learning.process_group(*, db_path, group_id, since_id, cfg, ask, store) -> dict
+    ask(system_prompt, user_prompt, stage) -> str      # stage: "coarse" | "refine"，异常向上抛
+inject.build_block(rules, jargon, shots, max_chars=600) -> str   # 空/坏行一律返回 ""
+store.review(table, row_id, action, actor) -> bool     # 仅 pending 可改
+```
+
+**数据流**
+
+```text
+daily_memory memory.db(events, 只读)
+   └─ read_events(游标增量) → 粗筛(免费模型) → 提炼 → parse_payload
+        └─ style.db(pending) → /风格 通过 → approved
+             └─ on_llm_request → build_block → TextPart(temp) 注入
+```
+
+**关键实现决策**
+
+| 决策 | 原因 |
+|---|---|
+| `inject_enabled` 默认 `false` | 装上只学不注入，回复零变化；审批后再开 |
+| 游标只在 `advanced=true` 推进 | 预算拦截/解析失败/消息不足都不推进，失败不丢数据 |
+| `nothing_to_learn` 也推进游标 | 否则同一批消息每天重复调用模型 |
+| 注入用 `extra_user_content_parts` + `mark_as_temp()` | 与 daily_memory 完全一致，不动 system_prompt，保前缀缓存 |
+| 预算门包住两段调用 | `guarded_model_call` 抛 `ModelBudgetBlocked` 时整轮跳过 |
+| 模型调用本地实现 `llm_ask` | 照抄 daily_memory 的 `llm_generate` → `text_chat` 双路径 |
+| 三类内容轮流入块 | 避免规则多时把黑话/示例挤掉（曾出现，已修） |
+| 表名走 `TABLES` 白名单 | 杜绝命令参数拼 SQL |
+
+**命令**
+
+| 命令 | 说明 |
+|---|---|
+| `/风格` 或 `/风格 状态` | 开关、待审数、游标、provider、数据源是否在线 |
+| `/风格 列表` | 待审规则（当前群） |
+| `/风格 黑话` / `/风格 示例` | 待审黑话/示例 |
+| `/风格 通过 <id>` / `/风格 拒绝 <id>` | 审批规则 |
+| `/风格 黑话 通过 <id>` | 审批黑话（示例同理） |
+| `/风格 导出` | 输出 approved JSON（去掉 evidence） |
+| `/风格 跑一次` | 管理员手动触发当前群学习 |
+
+**测试（✅ 已通过）**
+
+```bash
+python -m unittest discover -s tests -p "test_dafeiyu_style.py"
+# Ran 12 tests ... OK   （Python 3.11.7，本机 Windows）
+```
+
+覆盖：JSON 四种形态、类型错误降级、粗筛空集、配额裁剪与去重、状态机不可逆、库缺失静默、`too_few` 不推进、解析失败不推进、预算异常不写入、happy path、注入空值与 300/600 字符截断。
+
+**已知未验证点 / 请审查（🟡 真实运行时才会暴露）**
+
+1. `StarTools.get_data_dir("dafeiyu_style")` 是否自动带 `astrbot_plugin_` 前缀未实测；已用「双目录回退」兼容 `astrbot_plugin_dafeiyu_daily_memory` 与 `dafeiyu_daily_memory` 两种命名。
+2. `event.get_group_id()` 在 qq_official 适配器下可能返回 openid 或空 → 注入会静默失效（学习走 `events.group_id`，不受影响）。
+3. `datetime.now()` 用容器本地时区判断「03 点」，若容器时区不是 Asia/Shanghai 会偏移。
+4. `Store` 是单 sqlite 连接（`check_same_thread=False`），后台学习与注入 hook 并发时有 `database is locked` 可能；已设 `timeout=10`，未做重试。
+5. `parse_payload` 只剥离 ```json 包裹与截取最外层 `{}`，**不做截断修复**；模型输出被 max_tokens 截断时整批丢弃（预期行为，但请确认可接受）。
+6. 未写 `_conf_schema.json`（与 group_guard 一致，靠手改 `config.json`）；面板不会出现可视化配置项。
+7. `guarded_model_call` 是**全局额度**，不区分群；单群学习可能被全局预算先拦。
+8. 私聊 `group_id` 为空 → 列表/注入均不生效（设计如此）。
+9. 审批状态机：`review` 只允许 pending → approved/rejected，已处理记录无法回滚（如需回滚要手动改库）。
+10. `config.json` 由 `_ensure_config` 首次启动写入，写入发生在 `load_config` 之后 → 首次运行用内置默认值，第二次起读文件，行为一致但请确认时序。
+
+**请外部 AI 只回答三类问题**：① 上述接口契约与实现是否一致；② 10 个未验证点里哪些会真出问题、怎么改；③ 有没有违反 §17.4「非目标」的地方。**不需要新增功能建议。**
+
+---
+
 ## 变更记录
 
 - **2026-10-23**：初版。架构、访问方式、关键文件、已做改动、红线、常用命令。
@@ -1079,6 +1446,18 @@ docker exec -i astrbot python3 - < /tmp/verify_guard.py
      新增 `clean-temp.sh` 每日 04:10 cron。
   7. **新增 `dafeiyu_group_guard` v1.0.0（§16）**：群聊每日 ¥0.5（账单估算，按群独立）+ 工作日
      09–12/14–18 高峰休眠；私聊完全放开；休眠/超额期消息**不补答**；配置热读取（改配置免重启）。
+- **2026-10-30（本版，新增 §17）**：
+  1. **评估第三方 `self-learning` 4.4.4 并决定不启用**：与 `daily_memory` 双写/双重注入、
+     后台学习绕过 `group_guard`、成本不在账本、AGPL 传染，均记录在 §17.2。
+  2. **智谱结论**：可用但只限免费档（GLM-4.5-Flash）；付费档会脱离现有账本（`allowed_hosts` /
+     计价 / 余额查询均写死 DeepSeek，见 §17.2 成本缺口）。
+  3. **资源评估**：开启后估算 +80–200MB（服务器仅 3.5GB 且与游戏服同机），故不在线上启用。
+  4. **新增自建规格 `astrbot_plugin_dafeiyu_style`**：只读 `daily_memory` 的 `events`，
+     只做风格规则/黑话/few-shot，注入用临时 part、走 `guarded_model_call`、目标 RSS <30MB。
+  5. **§17.16 提供可直接粘贴给外部 AI 的实现指令**，含硬性约束、目录结构、测试与验收/回滚。
+  6. **已实现 `astrbot_plugin_dafeiyu_style` v0.1.0（§17.18）**：新增 8 个文件 + 12 条单测（本机
+     Python 3.11 全通过）；`inject_enabled` 默认关，先只学不注入；未在真实 AstrBot 运行时验证，
+     未验证点与审查清单见 §17.18。
 
 ## 2026-10-26 内置知识库内容更新
 

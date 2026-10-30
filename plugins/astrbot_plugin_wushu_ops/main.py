@@ -1,3 +1,4 @@
+from .game_account import verify_game_account
 import os
 import re
 import json
@@ -399,6 +400,11 @@ class WushuOpsPlugin(Star):
     async def initialize(self):
         self._ensure_monitor()
         self.assistant.rooms.start()
+
+    @filter.command("绑定游戏")
+    async def bind_game_account(self, event: AstrMessageEvent, realm: str = "", code: str = ""):
+        event.stop_event()
+        yield event.plain_result(await verify_game_account(event, self.config, realm, code))
 
     # ---------- bug 收集 ----------
 

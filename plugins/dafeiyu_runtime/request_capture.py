@@ -20,6 +20,8 @@ def extract_usage(payload):
     output=u.get('completion_tokens',u.get('output_tokens'))
     details=u.get('prompt_tokens_details') or u.get('input_tokens_details') or {}
     hit=u.get('prompt_cache_hit_tokens',details.get('cached_tokens'))
+    if hit is None and data.get('model')=='glm-5.3-flashx' and type(total) is int:
+        hit=0  # All input counted without any cache discount when not reported.
     if hit is None and type(total) is int and type(u.get('prompt_cache_miss_tokens')) is int:
         hit=total-u['prompt_cache_miss_tokens']
     if hit is None and total==0:hit=0
@@ -105,7 +107,8 @@ class UsageStream(httpx.AsyncByteStream):
 class Capture:
     def __init__(self,ledger=None,allowed_hosts=None):
         self.ledger=ledger or Ledger();self.enabled=False;self.errors=0
-        self.allowed_hosts=set(allowed_hosts or ['api.deepseek.com'])
+        self.allowed_hosts=set(allowed_hosts or ['api.deepseek.com','open.bigmodel.cn'])
+        self.origins={}
         salt=Path(self.ledger.path).with_suffix('.salt')
         try:self.salt=salt.read_bytes()
         except FileNotFoundError:
@@ -118,7 +121,13 @@ class Capture:
         self.previous=None;self.wrapper=None
         self.budget_check=None
     async def finish(self,*args,**kwargs):
-        try:await asyncio.to_thread(self.ledger.finish,*args,**kwargs)
+        try:
+            await asyncio.to_thread(self.ledger.finish,*args,**kwargs)
+            attribution=self.origins.pop(args[0],None)
+            if attribution and attribution[1]=='glm-5.3-flashx':
+                from .zhipu_attribution import record
+                origin,model,started=attribution
+                await asyncio.to_thread(record,args[0],origin,model,started,kwargs.get('usage'),kwargs.get('response_id',''))
         except Exception:self.errors+=1
     def install(self):
         if self.enabled:return
@@ -150,6 +159,8 @@ class Capture:
                 except (ValueError,httpx.RequestNotRead):pass
                 fingerprint=hmac.new(owner.salt,request.headers.get('authorization','').encode(),hashlib.sha256).hexdigest()
                 identity=await asyncio.to_thread(owner.ledger.start,model,request.url.path,fingerprint)
+                from .session_budget import ORIGIN
+                owner.origins[identity]=(ORIGIN.get(),model,time.time())
             except Exception:owner.errors+=1
             try:response=await previous(client,request,*args,**kwargs)
             except BaseException:

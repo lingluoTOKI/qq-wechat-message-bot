@@ -1,4 +1,4 @@
-"""Explicitly configured affinity, keyed by identity, never guessed from traffic."""
+"""管理员优先的显式好感度；自动分只补空白（见 affinity_watch.py）。"""
 import json
 
 
@@ -6,7 +6,7 @@ def command(store, text, admin):
     if not admin:return '好感度档案仅限机器人管理员查看或设置。'
     action,_,rest=text.strip().partition(' ')
     if action not in ('查看','设置') or not rest.strip():
-        return '用法：/记忆 好感度 查看 昵称；/记忆 好感度 设置 昵称 0—100。分数由管理员明确设置，不是自动测量。'
+        return '用法：/记忆 好感度 查看 昵称；/记忆 好感度 设置 昵称 0—100。未设置的人由每日自动打分填充，管理员设置的分数优先。'
     who=rest.strip();score=None
     if action=='设置':
         try:who,raw=who.rsplit(' ',1);score=int(raw)
@@ -23,6 +23,7 @@ def command(store, text, admin):
         if not matches:return '请使用精确昵称或用户ID；不会用模糊匹配修改好感度。'
         person=matches[0]
     if action=='设置':store.set_affinity(person['sender_id'],score)
-    score=store.get_affinity(person['sender_id'])
-    if score is None:return person['name']+'：好感度未设置，祝福按已有画像自然表达。'
-    return person['name']+f'：已记录好感度 {score}/100（管理员设定）。生日祝福只据此调整语气，不公开分数。'
+    row=store.get_affinity_row(person['sender_id'])
+    if row is None:return person['name']+'：好感度未设置，将等下次自动打分（管理员也可手动设置）。'
+    how='自动评分，管理员设置可覆盖' if str(row['source'])=='auto' else '管理员设定'
+    return person['name']+f'：好感度 {row["score"]}/100（{how}）。生日祝福只据此调整语气，不公开分数。'

@@ -41,6 +41,15 @@ async def ask(context, provider_id: str, system_prompt: str, prompt: str,
     import asyncio
 
     async def _run():
+        if provider_id == 'zhipu/glm-5.3-flashx':
+            # FlashX errors must not trigger a second paid call through fallback.
+            from dafeiyu_runtime.paid import guarded_model_call
+            resp = await guarded_model_call(context.llm_generate,
+                chat_provider_id=provider_id,prompt=prompt,system_prompt=system_prompt,
+                max_tokens=max(2400,max_tokens),request_max_retries=1)
+            text = _extract_text(resp)
+            if not text.strip():raise RuntimeError('智谱返回空文本，不重复调用')
+            return text
         if hasattr(context, "llm_generate"):
             try:
                 resp = await context.llm_generate(

@@ -81,5 +81,47 @@
     "type": "string",
     "default": "12",
     "hint": "默认 12（小洛）。会读取该人格的系统提示，让祝贺词带自称和语气；读不到就用内置的简短口吻。"
+  },
+  "affinity_auto_enable": {
+    "description": "每天自动给近期活跃、已有画像的人打好感度分",
+    "type": "bool",
+    "default": true,
+    "hint": "管理员用 /记忆 好感度 设置 的分数永不覆盖；自动分只填空白或刷新自动分。"
+  },
+  "affinity_auto_hour": {
+    "description": "每日自动打分的触发小时（北京时间）",
+    "type": "int",
+    "default": 4,
+    "hint": "建议 4 点，避开生日 0 点检查和白天高峰；重启后会当天补跑一次。"
+  },
+  "affinity_auto_window_days": {
+    "description": "只给最近多少天发过言的人打分",
+    "type": "int",
+    "default": 7,
+    "hint": "窗口越长调用越多；7 天足够覆盖活跃群友。"
+  },
+  "affinity_auto_max_people": {
+    "description": "每天最多自动打分的人数",
+    "type": "int",
+    "default": 15,
+    "hint": "按最近发言时间倒序取前 N 人，控制单日调用量。"
+  },
+  "affinity_auto_min_messages": {
+    "description": "参与自动打分所需的最少历史发言数",
+    "type": "int",
+    "default": 5,
+    "hint": "低于该值的人画像通常不可靠，跳过。"
+  },
+  "affinity_auto_max_delta": {
+    "description": "自动分的日间平滑幅度：单日最多变动多少分",
+    "type": "int",
+    "default": 10,
+    "hint": "避免画像波动导致好感度忽高忽低；0 表示不限制。管理员设定的分数不受影响。"
+  },
+  "affinity_provider_id": {
+    "description": "自动打分用的模型 Provider ID",
+    "type": "string",
+    "default": "zhipu/glm-5.3-flashx",
+    "hint": "默认与生日写作同源的智谱 FlashX；换成非 zhipu 的模型会先检查全局预算。"
   }
 }

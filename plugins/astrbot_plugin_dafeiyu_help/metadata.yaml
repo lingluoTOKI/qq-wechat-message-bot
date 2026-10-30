@@ -1,7 +1,7 @@
 name: astrbot_plugin_dafeiyu_help
-desc: 常用命令与分类帮助：/功能 看常用入口，/功能 分类 看详细用法，/功能 全部 看完整命令列表。
+desc: 完整功能说明书：/说明书 或 /功能 全部 发PDF，/功能 TXT 发文本，/功能 看目录，/功能 分类 查用法；覆盖游戏、音乐、语音、记忆、生日、考研与管理。
 short_desc: 分类功能说明书
-version: 1.8.1
+version: 1.10.1
 author: ops
 display_name: 大肥鱼说明书
 astrbot_version: ">=4.25.5"

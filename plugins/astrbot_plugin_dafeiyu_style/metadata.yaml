@@ -1,0 +1,6 @@
+name: astrbot_plugin_dafeiyu_style
+display_name: 大肥鱼表达风格
+desc: 只读情景记忆归档，提炼群内表达风格/黑话/问答示例；人工审批后以临时片段注入，走预算门；无 WebUI、无新依赖、不改人格。
+version: 0.1.5
+author: TOKI
+repo: local

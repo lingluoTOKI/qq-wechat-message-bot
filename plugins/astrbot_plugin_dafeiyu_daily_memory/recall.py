@@ -4,6 +4,7 @@
 每条输出都带时间戳和说话人，让模型知道"谁在什么时候说了什么"。
 """
 import time
+from dafeiyu_runtime import profile_quality as quality
 
 from .store import _day_cst
 
@@ -63,14 +64,16 @@ def fmt_person(store, person, with_facts=True):
         head += "，曾用名/别名：" + "、".join(aliases[-4:])
     head += "）"
     parts = [head, '来源：跨会话人物汇总；旧画像与事实未逐条标注来源，不代表发生在当前群。']
+    bot_note=quality.bot_context_note(store.get_bot_context(person['sender_id']))
+    if bot_note:parts.append(bot_note)
     if person["summary"]:
-        parts.append("画像：" + person["summary"])
+        parts.append("画像：" + quality.clean_summary(person["summary"]))
     if with_facts:
         facts = store.get_facts(person["sender_id"], active_only=True, limit=30)
         if facts:
             bucket = {}
             for f in facts:
-                bucket.setdefault(f["category"] or "其他", []).append(f["fact"])
+                bucket.setdefault(f["category"] or "其他", []).append(f"#{f['id']} {f['fact']}（{quality.source_note(f)}）")
             for cat, items in bucket.items():
                 parts.append("· %s：%s" % (cat, "；".join(items)))
     return "\n".join(parts)
@@ -82,7 +85,8 @@ def recall_person(store, key, day_limit=8):
     if person is None:
         return None, None
     profile = fmt_person(store, person)
-    recent = store.search_events(None, sender_id=person["sender_id"], limit=day_limit)
+    recent = store.search_events(None, sender_id=person["sender_id"], limit=day_limit*4)
+    recent = [r for r in recent if not quality.reason(r['content'])][:day_limit]
     return profile, fmt_events(recent, max_chars=1000)
 
 

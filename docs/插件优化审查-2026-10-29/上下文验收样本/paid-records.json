@@ -1,0 +1,78 @@
+[
+  {
+    "upper_bound_cny": 0.066476,
+    "status": "completed",
+    "http_status": 200,
+    "elapsed_s": 8.37,
+    "usage": {
+      "completion_tokens": 342,
+      "prompt_tokens": 5676,
+      "total_tokens": 6018,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "prompt_tokens_details": null
+    },
+    "response_id": "4f9bb9fc-2ba3-4273-ac12-a30966b2fe3a_37182baff4694327a530fae272f8fff9",
+    "cost_cny_no_cache_estimate": 0.00636,
+    "finish_reason": "stop"
+  },
+  {
+    "upper_bound_cny": 0.033794,
+    "status": "completed",
+    "http_status": 200,
+    "elapsed_s": 3.104,
+    "usage": {
+      "completion_tokens": 235,
+      "prompt_tokens": 2229,
+      "total_tokens": 2464,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      }
+    },
+    "response_id": "4fab5e25-82e0-46fc-8c01-e5639b0f7f75_b9092cbeaac64679bb5a104084aa7867",
+    "cost_cny_no_cache_estimate": 0.002699,
+    "finish_reason": "stop"
+  },
+  {
+    "upper_bound_cny": 0.066934,
+    "status": "completed",
+    "http_status": 200,
+    "elapsed_s": 7.585,
+    "usage": {
+      "completion_tokens": 373,
+      "prompt_tokens": 5747,
+      "total_tokens": 6120,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "prompt_tokens_details": {
+        "cached_tokens": 4096
+      }
+    },
+    "response_id": "2bf9f862-1410-4629-b86a-892fd6f5053d_108fdad572aa42498f0824d87a49f70b",
+    "cost_cny_no_cache_estimate": 0.006493,
+    "finish_reason": "stop"
+  },
+  {
+    "upper_bound_cny": 0.034132,
+    "status": "completed",
+    "http_status": 200,
+    "elapsed_s": 5.731,
+    "usage": {
+      "completion_tokens": 216,
+      "prompt_tokens": 2261,
+      "total_tokens": 2477,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "prompt_tokens_details": null
+    },
+    "response_id": "96f18887-b020-416a-bdb0-8a4cff5e91fe_ab52c87fb3234c1aa405e2e71a8cf5c6",
+    "cost_cny_no_cache_estimate": 0.002693,
+    "finish_reason": "stop"
+  }
+]

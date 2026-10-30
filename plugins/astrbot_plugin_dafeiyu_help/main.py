@@ -1,8 +1,13 @@
 """大肥鱼说明书：常用入口、分类帮助和完整命令列表。
 
-文案统一维护于SECTIONS；QQ使用简洁Markdown，其余平台用逐行文本。
+文案统一维护于manual.py的SECTIONS；QQ使用简洁Markdown，其余平台用逐行文本。
 说明书直接回复，不调用模型。上下文诊断与历史图片处理保持独立。
 """
+import importlib
+import re
+from pathlib import Path
+import astrbot.api.message_components as Comp
+
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
@@ -16,6 +21,7 @@ COL = 22
 # md 版文本上限：超了就退回纯文本，避免平台侧截断把格式切烂。
 # QQ 官方 markdown content 上限约 4000 字符，留出安全余量。
 MD_LIMIT = 3600
+PAGE_LIMIT = 2400
 
 
 def _dw(s: str) -> int:
@@ -44,125 +50,9 @@ def _line(cmd: str, desc: str, col: int = COL) -> str:
 #   (命令, 说明)               一行命令
 #   (命令, 说明, 补充)         命令 + 分类页里多一行备注
 # 命令为空串表示这是一条说明行（不带命令）。
-SECTIONS = [
-    ("入门", "第一次用先看这几条", [
-        ("@大肥鱼 问题", "群里 @ 我，或私聊直接说话"),
-        ("/功能 全部", "一次看全部命令列表"),
-        ("/功能 语音", "只看某一类，类别名见下方列表"),
-        ("", "说明书是直接回复，不调用模型、不花钱"),
-        ("", "群聊有每日额度和高峰休眠，规则见「用量」"),
-    ], ["新手", "上手", "start", "guide"]),
-
-    ("语音", "朗读与语音回复", [
-        ("#", "基础"),
-        ("/说 你好", "把这段文字念出来，回一条语音",
-         "支持中英混排；带链接或长段代码会跳过"),
-        ("/语音开", "之后每条回复自动带语音",
-         "会让回复延迟几秒，赶时间可先关掉"),
-        ("/语音关", "关闭自动语音", "已发出的语音不受影响"),
-        ("#", "进阶"),
-        ("/语音模式 只语音", "只发语音，不再发文字",
-         "另可选 文字加语音：文字为主、附一条语音"),
-        ("/语音状态", "查看当前开关、模式和音色档位", None),
-        ("", "音色跟我的设定走；本地引擎忙时会自动降级"),
-    ], ["说", "tts", "朗读", "读"]),
-
-    ("点歌翻唱", "把歌曲换成我的音色", [
-        ("#", "流程"),
-        ("/点歌 歌名", "搜索 → 回复序号 → 下载并翻唱",
-         "翻唱比原唱慢很多，通常要等一会儿"),
-        ("", "回复 0 取消选歌；超时未回复也会自动取消"),
-        ("/发送方式 语音", "可选 语音 / 文件 / 自动",
-         "文件适合保存，语音适合直接听"),
-        ("#", "自己提供音频"),
-        ("/翻唱", "按提示发送一段音频，我用音色重唱",
-         "也可在同一条消息里直接附上音频"),
-        ("", "时长过长会失败；建议 30 秒以内的片段"),
-    ], ["翻唱", "点歌", "唱歌", "sing", "cover"]),
-
-    ("音乐", "播放原唱", [
-        ("/搜索歌曲 歌名", "搜索 → 回复序号 → 发原唱音频",
-         "搜不到时换个写法，或改用具体歌名 + 歌手"),
-        ("", "回复「序号 下载」收文件；回复「取消」结束"),
-        ("", "同一人再次搜索或点歌，以最近一次为准"),
-    ], ["听歌", "搜歌", "歌曲", "music"]),
-
-    ("游戏", "卫戍协议", [
-        ("#", "查分"),
-        ("/排行榜 单人 TOKI", "按昵称查累计积分",
-         "昵称要写游戏里显示的完整名字"),
-        ("/排行榜", "查看总榜", None),
-        ("#", "服务器"),
-        ("/服务器状态", "主服与契约服是否在线", None),
-        ("/在线玩家", "当前在线明细", None),
-        ("#", "反馈"),
-        ("/报bug 描述", "提交问题并返回编号",
-         "附上报错时间与操作步骤，处理更快"),
-        ("/bug列表", "查看问题与处理进度", None),
-        ("/运营帮助", "运营与维护说明", None),
-    ], ["卫戍", "雾锁", "服务器", "开服", "game", "bug", "排行榜"]),
-
-    ("记忆", "聊天归档与人物资料", [
-        ("#", "查询"),
-        ("/记忆 状态", "归档数量与最近更新时间", None),
-        ("/记忆 找 名字", "查这个人的资料和相关片段",
-         "资料来自群聊与私聊的公开发言"),
-        ("/lmem search 关键词", "搜索提炼后的长期记忆",
-         "搜的是摘要，不是逐字原话；用短关键词更准"),
-        ("#", "维护"),
-        ("/lmem help", "查看其他记忆命令", None),
-        ("", "记忆跨会话共享，并标注来源群或私聊"),
-        ("", "旧摘要可能缺来源标签；每天 0 点整理前一天"),
-    ], ["记性", "lmem", "记忆库", "memory"]),
-
-    ("B站", "订阅 UP 主动态", [
-        ("/bili 订阅 UID", "为当前会话订阅",
-         "UID 是数字，不是昵称；可在 UP 主页链接里找到"),
-        ("/bili 订阅列表", "查看本会话的订阅", None),
-        ("/bili 取消订阅 UID", "移除订阅", None),
-        ("/bili 状态", "运行状态与异常投递数量", None),
-        ("/bili 测试", "立即检查一次", "只推新动态，不会补推历史"),
-    ], ["b站", "bili", "动态", "up"]),
-
-    ("用量", "余额、花费与规则", [
-        ("#", "查询"),
-        ("/用量", "余额、今日 Token、费用参考、预算剩余",
-         "费用参考按官方单价估算，不是最终账单"),
-        ("/账单", "同一份统计的精简版", None),
-        ("/用量 7", "近 7 天用量", "预算剩余仍按今日与本月"),
-        ("#", "规则"),
-        ("", "余额查询时刷新，最多缓存 60 秒"),
-        ("", "群聊每个群每天 ¥0.5；用完当天不再回复，次日 0 点恢复"),
-        ("", "工作日 9-12 点、14-18 点为高峰，群聊休眠；12 点、18 点自动恢复"),
-        ("", "私聊不受额度与休眠限制；休眠期间的消息不补答"),
-        ("", "额度用尽后，规则查询和说明书仍然可用"),
-    ], ["余额", "账单", "花费", "token", "cost", "费用", "额度", "休眠", "高峰", "预算"]),
-
-    ("管理", "管理员与诊断", [
-        ("/上下文", "当前会话上下文构成（仅管理员）",
-         "只读快照，0 token；普通成员发送无回复"),
-        ("/关闭解析", "关闭当前会话的自动链接解析（管理员）", None),
-        ("/开启解析", "恢复自动解析", None),
-        ("", "禁言、踢人等群管插件当前未启用"),
-    ], ["群管", "运营", "管理员", "admin", "自检", "测试", "check"]),
-
-    ("其它", "聊天与链接", [
-        ("@大肥鱼 + 问题", "聊天、问答、查资料",
-         "回答会参考当前会话的历史与记忆"),
-        ("发送链接", "支持的平台会尝试解析",
-         "需要登录或有平台限制时，解析会失败或只给标题"),
-        ("发送图片", "我只看最近几轮", "更早的历史图片会被省略，不再重复占上下文"),
-        ("", "我不会执行 shell、写文件或读取任意路径，这是刻意设计"),
-    ], ["其他", "闲聊", "misc"]),
-
-    ("常见问题", "FAQ", [
-        ("群里不理我", "额度用完或高峰休眠，查「用量」看剩余"),
-        ("语音没声音", "可能合成超时或引擎忙，稍后重试即可"),
-        ("点歌搜不到", "音源没有该曲目，换写法或换一首"),
-        ("记忆说的不准", "旧摘要可能缺来源，用 /记忆 找 名字 核对"),
-        ("想加功能", "找 TOKI，别在群里刷屏"),
-    ], ["faq", "问题"]),
-]
+from . import manual as _manual
+importlib.reload(_manual)
+SECTIONS = _manual.SECTIONS
 
 
 ALIAS = {}
@@ -222,7 +112,7 @@ def _render_full(md: bool = False) -> str:
             "# 大肥鱼 · 完整命令列表",
             "",
             "带补充备注的用法看 `/功能 <分类>`。",
-            "说明书不调用模型；语音、翻唱等具体功能会调用付费服务。",
+            "说明书与规则查询不调用聊天模型；聊天和部分辅助功能按实际服务计费。",
             "",
         ]
         for name, title, items, _ in SECTIONS:
@@ -241,7 +131,7 @@ def _render_full(md: bool = False) -> str:
     lines = [
         "大肥鱼 · 完整命令列表",
         "带补充备注的用法看 /功能 分类名。",
-        "说明书不调用模型；具体功能可能收费。",
+        "说明书不调用聊天模型；具体功能按实际服务计费。",
         "",
     ]
     for name, title, items, _ in SECTIONS:
@@ -265,7 +155,10 @@ def _render_all(md: bool = False) -> str:
         ("/搜索歌曲 歌名", "听原唱"),
         ("/点歌 歌名", "听翻唱"),
         ("/说 你好", "文字转语音"),
-        ("/记忆 找 名字", "查人物资料"),
+        ("/搜索 关键词", "联网查资料"),
+        ("/记忆 画像", "查看自己的资料并纠错"),
+        ("/记忆 生日", "生日名单与零点祝福"),
+        ("/考研 今天", "50天计划与Notion打卡"),
     ]
     row = _row_md if md else _row_plain
     lines = [title, "", "常用入口"] + [row(c, d) for c, d in rows]
@@ -273,15 +166,38 @@ def _render_all(md: bool = False) -> str:
     for name, _, _, _ in SECTIONS:
         lines.append(row("/功能 " + name, ""))
     lines += ["", row("/功能 全部", "全部命令列表"),
-              "说明书不调用模型；具体功能可能收费。群聊额度与高峰休眠见「用量」。"]
+              "说明书不调用聊天模型；具体功能按实际服务计费。群聊额度与高峰休眠见「用量」。"]
     return "\n".join(lines)
+
+
+def _full_pages(md=False):
+    """Split only between complete lines, leaving room for navigation."""
+    pages=[];current=[];length=0
+    for line in _render_full(md).splitlines():
+        if current and length+len(line)+1>PAGE_LIMIT:
+            pages.append('\n'.join(current).strip());current=[];length=0
+        current.append(line);length+=len(line)+1
+    if current:pages.append('\n'.join(current).strip())
+    return pages
+
+
+def _render_full_page(page=1, md=False):
+    pages=_full_pages(md)
+    if not 1<=page<=len(pages):
+        return f'完整列表共{len(pages)}页，请输入 /功能 全部 1 至 /功能 全部 {len(pages)}。'
+    title=f'大肥鱼完整列表 · 第{page}/{len(pages)}页'
+    navigation=[]
+    if page>1:navigation.append(f'上一页：/功能 全部 {page-1}')
+    if page<len(pages):navigation.append(f'下一页：/功能 全部 {page+1}')
+    navigation.append('详细步骤：/功能 分类名；目录：/功能')
+    return title+'\n\n'+pages[page-1]+'\n\n'+'\n'.join(navigation)
 
 
 @register(
     "astrbot_plugin_dafeiyu_help",
     "ops",
     "常用命令与分类帮助：/功能 看常用入口，/功能 分类 看详细用法，/功能 全部 看完整命令列表。",
-    "1.8.1",
+    "1.10.1",
 )
 class DafeiyuHelpPlugin(Star):
     def __init__(self, context: Context, config=None):
@@ -311,6 +227,7 @@ class DafeiyuHelpPlugin(Star):
 
     def _arg(self, event):
         s = (event.message_str or "").strip()
+        s=re.sub(r'^(?:(?:\[At:[^\]]*\]|\[CQ:at,[^\]]*\]|<@!?[^>]+>)\s*)+','',s).strip()
         for c in ("功能", "帮助", "菜单", "能干啥", "会什么", "help", "说明书"):
             for pre in ("/", "／", "", "#"):
                 t = pre + c
@@ -329,6 +246,17 @@ class DafeiyuHelpPlugin(Star):
             if len(text) <= MD_LIMIT:
                 return event.plain_result(text).use_markdown(True)
         return event.plain_result(render(False))
+
+    def _file_result(self,event,extension='pdf'):
+        extension='txt' if extension=='txt' else 'pdf'
+        name='大肥鱼完整说明书.'+extension
+        path=Path(__file__).with_name('resources')/name
+        if not path.is_file():
+            return event.plain_result('说明书附件暂不可用，请用 /功能 分页 1 查看完整文字版。')
+        return event.chain_result([
+            Comp.Plain('完整说明书（'+extension.upper()+'）。若附件未显示，可用 /功能 分页 1 查看。'),
+            Comp.File(name=name,file=str(path)),
+        ])
 
     # ---------- 真实版 /ctxbudget + 未知命令守门人 ----------
     # 注意：实现放在 ctxbudget.py，但**装饰器必须写在本文件（插件自身模块）**，
@@ -356,8 +284,20 @@ class DafeiyuHelpPlugin(Star):
         """列出大肥鱼的全部功能。用法：/功能　或　/功能 语音"""
         event.stop_event()
         arg = self._arg(event).strip().lower()
-        if arg in {"全部", "所有", "all"}:
-            yield self._reply(event, _render_full)
+        raw=re.sub(r'^(?:(?:\[At:[^\]]*\]|\[CQ:at,[^\]]*\]|<@!?[^>]+>)\s*)+','',(event.message_str or '').strip()).strip().lstrip('/／#').strip()
+        if arg in {'文件','下载','pdf','txt','文本','文字版'} or not arg and raw=='说明书':
+            yield self._file_result(event,'txt' if arg in {'txt','文本','文字版'} else 'pdf')
+            return
+        if arg and arg.split()[0] in {"全部", "所有", "all", "完整", "分页", "文字"}:
+            parts=arg.split()
+            if len(parts)==1 and parts[0] not in {'分页','文字'}:
+                yield self._file_result(event)
+                return
+            if len(parts)>2 or len(parts)==2 and not parts[1].isdigit():
+                yield event.plain_result('用法：/功能 全部 发送PDF；/功能 分页 2 查看指定页。')
+                return
+            page=int(parts[1]) if len(parts)==2 else 1
+            yield self._reply(event, lambda md: _render_full_page(page,md))
             return
         if arg:
             key = ALIAS.get(arg)
