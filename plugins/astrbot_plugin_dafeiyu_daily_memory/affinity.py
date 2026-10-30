@@ -18,17 +18,17 @@ def _overview(store, limit=30):
         lines.append('%d. %s %d分（%s·%s）' % (i, name, int(r['score']), how, day))
     if len(rows) > limit:
         lines.append('……只显示前 %d 人。' % limit)
-    lines.append('分数只用于生日祝福调整语气，不对群友公开。')
     return '\n'.join(lines)
 
 
 def command(store, text, admin):
-    if not admin:return '好感度档案仅限机器人管理员查看或设置。'
     action,_,rest=text.strip().partition(' ')
     if action=='总览':
         return _overview(store)
     if action not in ('查看','设置') or not rest.strip():
-        return '用法：/记忆 好感度 查看 昵称；/记忆 好感度 总览；/记忆 好感度 设置 昵称 0—100。未设置的人由每日自动打分填充，管理员设置的分数优先。'
+        return '用法：/记忆 好感度 查看 昵称；/记忆 好感度 总览；/记忆 好感度 设置 昵称 0—100（仅管理员）。未设置的人由每日自动打分填充，管理员设置的分数优先。'
+    if action=='设置' and not admin:
+        return '设置好感度仅限管理员；查看和总览对所有人开放。'
     who=rest.strip();score=None
     if action=='设置':
         try:who,raw=who.rsplit(' ',1);score=int(raw)
@@ -48,4 +48,4 @@ def command(store, text, admin):
     row=store.get_affinity_row(person['sender_id'])
     if row is None:return person['name']+'：好感度未设置，将等下次自动打分（管理员也可手动设置）。'
     how='自动评分，管理员设置可覆盖' if str(row['source'])=='auto' else '管理员设定'
-    return person['name']+f'：好感度 {row["score"]}/100（{how}）。生日祝福只据此调整语气，不公开分数。'
+    return person['name']+f'：好感度 {row["score"]}/100（{how}）。生日祝福只据此调整语气。'

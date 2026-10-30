@@ -5,13 +5,18 @@ DEBUG = re.compile(r'日志|调试|报错|Traceback|system_prompt|msg_seq|ctxbud
 ACTION = re.compile(r'(?:读取|修复|优化|修改|检查|测试|接入).{0,20}(?:插件|机器人|模型|接口|服务器)|(?:插件|机器人|模型|接口|服务器).{0,20}(?:修复|调试|报错|测试|配置)')
 SECRET = re.compile(r'(?:ntn_|sk-)[\w-]{12,}|-----BEGIN|忽略.{0,8}(?:规则|指令)|系统提示词',re.I)
 STYLE = re.compile(r'短句|句子|句尾|语气|省略|标点|括号|措辞|口语|感叹|问句|用词')
+# 机器人指令/功能控制：不能当作表达习惯
+COMMAND = re.compile(r'点歌|听歌|播放|暂停|停止|切歌|下一首|语音(?:开|关|状态)|签到|抽签|帮助|菜单|功能指令|控制机器人')
+# 测试、验收与运维：不进入风格库
+TEST = re.compile(r'测试|验收|联调|压测|自测|试跑|跑一遍|回归|脚本|日志|报错|异常|Traceback|重启|部署', re.I)
 
 
 def exclusion(text):
     text=re.sub(r'\[At:[^\]]*\]|\[CQ:[^\]]*\]','',str(text or '')).strip()
     if text.startswith(('/', '／')) or '```' in text:return '命令或代码'
     if SECRET.search(text):return '凭据或指令污染'
-    if DEBUG.search(text) or ACTION.search(text):return '调试或运维内容'
+    if COMMAND.search(text):return '机器人指令或功能控制'
+    if DEBUG.search(text) or TEST.search(text) or ACTION.search(text):return '调试、测试或运维内容'
     return ''
 
 

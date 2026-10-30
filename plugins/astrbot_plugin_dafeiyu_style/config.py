@@ -14,6 +14,9 @@ DEFAULTS = {
     # 注入开关：阶段 1 保持 false（只学不注入），阶段 2 再打开
     "inject_enabled": False,
     "auto_review": True,
+    # 学习后用智谱复核待审条目（指令/测试由本地隔离，不进模型）
+    "zhipu_review": True,
+    "zhipu_review_daily_cap": 20,
     # 空数组 = 全部群；测试期请显式只填测试群
     "groups": [],
     # 每日学习触发小时（0-23），建议 3，避开工作日高峰
