@@ -47,7 +47,7 @@ def main():
         canvas.setStrokeColor(colors.HexColor('#D4E4EC'));canvas.line(26,h-25,w-26,h-25)
         canvas.setFont(font,8);canvas.setFillColor(muted)
         canvas.drawString(26,h-18,'大肥鱼 / 小洛 · 完整功能说明书')
-        canvas.drawString(26,17,'v1.10.2  |  2026.10.30')
+        canvas.drawString(26,17,'v1.10.3  |  2026.10.30')
         canvas.drawRightString(w-26,17,str(doc.page))
         canvas.restoreState()
     doc=ManualDoc(str(pdf),pagesize=A5,leftMargin=26,rightMargin=26,topMargin=36,bottomMargin=33,
@@ -62,7 +62,7 @@ def main():
     toc=TableOfContents()
     toc.levelStyles=[ParagraphStyle('toc',fontName=font,fontSize=10.6,leading=16.5,leftIndent=0,firstLineIndent=0,rightIndent=18,spaceBefore=2,textColor=blue)]
     toc.dotsMinLevel=0;story.extend([toc,PageBreak()])
-    text=['大肥鱼（小洛）完整说明书','2026-10-30 · v1.10.2','',
+    text=['大肥鱼（小洛）完整说明书','2026-10-30 · v1.10.3','',
           '/说明书 或 /功能 全部：发送PDF','/功能 TXT：发送文字附件','/功能 分页 页码：逐页浏览','']
     for index,(name,title,rows,_) in enumerate(m.SECTIONS,1):
         if name=='风格':story.append(PageBreak())
