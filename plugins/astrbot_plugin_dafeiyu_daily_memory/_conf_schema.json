@@ -35,6 +35,12 @@
     "default": 5,
     "hint": "默认凌晨 5 点（群里没人说话的时候）。"
   },
+  "extract_batch_size": {
+    "description": "每日提炼每批人数",
+    "type": "int",
+    "default": 8,
+    "hint": "同一批人共用一份提炼规则前缀，批越大越省；默认 8，范围 1~20。批内任一解析异常才回退逐人。"
+  },
   "self_birthday": {
     "description": "机器人自己的生日（固定注入，避免被问到时答不知道）",
     "type": "string",
@@ -117,6 +123,12 @@
     "type": "int",
     "default": 10,
     "hint": "避免画像波动导致好感度忽高忽低；0 表示不限制。管理员设定的分数不受影响。"
+  },
+  "affinity_batch_size": {
+    "description": "好感度自动打分每批人数",
+    "type": "int",
+    "default": 5,
+    "hint": "同一批人共用一份打分规则前缀；默认 5，范围 1~10。批量解析失败或漏人时才逐人补齐。"
   },
   "affinity_provider_id": {
     "description": "自动打分用的模型 Provider ID",

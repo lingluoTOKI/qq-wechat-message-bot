@@ -21,6 +21,8 @@ DEFAULTS = {
     "groups": [],
     # 每日学习触发小时（0-23），建议 3，避开工作日高峰
     "hour": 3,
+    # 隔天跑（按公历单双日），把夜间冷启动请求砍一半
+    "every_other_day": True,
     # 模型：粗筛用免费档；提炼可同一模型
     "coarse_provider_id": "",
     "refine_provider_id": "",
@@ -28,9 +30,9 @@ DEFAULTS = {
     "min_msg_len": 6,
     "max_msg_len": 300,
     # 每群每轮最少消息数；不足则跳过且不推进游标
-    "min_messages": 30,
-    # 每群每轮最多处理条数
-    "max_batch": 40,
+    "min_messages": 10,
+    # 每群每轮最多处理条数（20 条/批，配合隔天跑降低夜间费用）
+    "max_batch": 20,
     "max_batches_per_run": 10,
     "daily_batch_cap": 10,
     "run_seconds": 180,

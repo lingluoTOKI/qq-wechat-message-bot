@@ -54,7 +54,7 @@ from astrbot.core.star.filter.command import GreedyStr
 from . import extract as _extract_module, recall as _recall_module
 importlib.reload(_extract_module)
 importlib.reload(_recall_module)
-from .extract import extract_for_person
+from .extract import extract_for_person, extract_people_batch
 from .recall import recall_chat, recall_person, fmt_person
 from . import store as _store_module
 importlib.reload(_store_module)
@@ -148,18 +148,18 @@ class DailyMemoryPlugin(Star):
         people = self.store.db.execute(
             "SELECT * FROM people WHERE msg_count>=3 ORDER BY msg_count DESC"
         ).fetchall()
-        done, facts, failed = 0, 0, 0
-        for p in people:
-            n, _, err = await extract_for_person(self.context, self.store, p, pid)
-            if not err:
-                done += 1
-                facts += n
-            else:failed+=1
-            await asyncio.sleep(1.5)  # 别把旁路模型打满
+        try:
+            batch_size = int(self.config.get("extract_batch_size", 8) or 8)
+        except (TypeError, ValueError):
+            batch_size = 8
+        batch_size = max(1, min(20, batch_size))
+        done, facts, failed = await extract_people_batch(
+            self.context, self.store, people, pid, batch_size=batch_size)
         self.store.set_meta('last_extract_status','partial' if failed else 'ok')
         if not failed or attempts+1>=2:self.store.set_meta('last_extract_day',today)
         if done:
-            logger.info("[daily_memory] 每日提炼：%d 人，新增 %d 条事实" % (done, facts))
+            logger.info("[daily_memory] 每日提炼：%d 人（每批 %d），新增 %d 条事实" % (
+                done, batch_size, facts))
 
     async def _do_sync(self, full=False):
         async with self._sync_lock:
@@ -237,7 +237,17 @@ class DailyMemoryPlugin(Star):
             yield event.plain_result('已停止使用这条人物事实，原始聊天仍保留。')
             return
         if arg.startswith("好感度"):
-            yield event.plain_result(affinity.command(self.store, arg[len("好感度"):].strip(), event.is_admin()))
+            sub = arg[len("好感度"):].strip()
+            if sub in ("打分", "立即打分", "重打"):
+                if not event.is_admin():
+                    yield event.plain_result('立即打分仅限机器人管理员。')
+                    return
+                logger.info('[daily_memory] 收到好感度打分命令：%s' % str(event.get_sender_id() or '')[:12])
+                scored = await self.affinity_watch.run_once()
+                logger.info('[daily_memory] 好感度打分命令完成：%d 人' % scored)
+                yield event.plain_result('本轮打分完成：更新 %d 人。用 /记忆 好感度 总览 查看。' % scored)
+                return
+            yield event.plain_result(affinity.command(self.store, sub, event.is_admin()))
             return
         if arg in ("生日", "生日列表"):
             yield event.plain_result(format_list(self.store, self.birthdays.hour()))
@@ -279,18 +289,16 @@ class DailyMemoryPlugin(Star):
             pid = str(self.config.get("extract_provider_id", "xiaomi/mimo-v2.6-flash"))
             if who in ("全部", "all", ""):
                 yield event.plain_result("开始批量提炼全部成员，可能要几分钟…")
-                ok, fail, total_facts = 0, 0, 0
-                for p in self.store.db.execute(
+                people = [p for p in self.store.db.execute(
                     "SELECT * FROM people ORDER BY msg_count DESC"
-                ).fetchall():
-                    if (p["msg_count"] or 0) < 3:
-                        continue
-                    n, _, err = await extract_for_person(self.context, self.store, p, pid)
-                    if err:
-                        fail += 1
-                    else:
-                        ok += 1
-                        total_facts += n
+                ).fetchall() if (p["msg_count"] or 0) >= 3]
+                try:
+                    batch_size = int(self.config.get("extract_batch_size", 8) or 8)
+                except (TypeError, ValueError):
+                    batch_size = 8
+                ok, total_facts, fail = await extract_people_batch(
+                    self.context, self.store, people, pid,
+                    batch_size=max(1, min(20, batch_size)))
                 yield event.plain_result(
                     "批量提炼完成：%d 人成功（新增 %d 条事实），%d 人失败。"
                     % (ok, total_facts, fail))

@@ -192,6 +192,13 @@ class Store:
             ' ORDER BY last_seen DESC LIMIT ?',
             (cutoff,int(min_messages),max(1,int(limit)))).fetchall()
 
+    def last_session(self, sender_id):
+        """该用户最近一次发言所在会话；用于给旁路模型调用提供预算来源。"""
+        row = self.db.execute(
+            'SELECT session_id FROM events WHERE sender_id=?'
+            ' ORDER BY ts DESC LIMIT 1', (sender_id,)).fetchone()
+        return str(row[0]) if row else ''
+
     def get_bot_context(self, sender_id):
         try:
             data=json.loads(self.get_meta('person_bot_context:'+str(sender_id)) or '{}')

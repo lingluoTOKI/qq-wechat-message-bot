@@ -381,6 +381,7 @@ class StylePlugin(Star):
                     await self._run_all()
                 if (self.cfg.get("enabled", False)
                         and int(now.hour) == int(self.cfg.get("hour", 3))
+                        and (not self.cfg.get("every_other_day", True) or now.toordinal() % 2 == 1)
                         and self.store.get_meta("last_run_day") != today):
                     self.store.set_meta("last_run_day", today)
                     await self._run_all()

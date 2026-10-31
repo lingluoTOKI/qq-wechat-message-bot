@@ -11,9 +11,18 @@
   · 已有事实一起喂进去，让模型判断"重复/更新/新增"，避免每次全量重复追加
   · 输出必须是纯 JSON，解析失败就整批丢弃，不猜
 """
+import asyncio
 import json
 import re
 import time
+
+try:
+    from astrbot.api import logger
+except ImportError:  # 单元测试环境
+    import logging
+
+    logger = logging.getLogger(__name__)
+
 from dafeiyu_runtime import profile_quality as quality
 
 CATEGORIES = ["身份", "喜好", "关系", "经历", "习惯", "雷点"]
@@ -71,6 +80,17 @@ SYSTEM += """
 16. 当前机器人是小洛；“爱吃饭的大肥鱼”可能是另一实例，泛称机器人/bot/大肥鱼不能一概合并。
     如果资料给出人物的机器人指代说明，按该说明识别；不确定就保留“所指未确认”，不要猜部署者或关系。
     与其他机器人发生的互动不能写成与小洛的共同经历；机器人自己的偏好、生日不能归给用户。
+"""
+
+# 多人合并成一次请求：system 只发一遍，避免每人一次都重复一大段规则。
+BATCH_SYSTEM = SYSTEM + """
+17. 本次会一次给出多个人物，每段以「【人物N】」开头，段内说明「本人」是谁。逐人独立分析：
+    - 不要把一个人的信息写到另一个人名下；每个人只用**他自己那段**【聊天记录】里的本人发言作证据。
+    - 「已知事实」的序号只对该人物生效；没有新材料的人可以整段省略。
+18. 输出**严格 JSON**（不要 markdown、不要解释）：
+    {"people":[{"no":1,"summary":"一句话画像，30字以内","birthday":"","summary_evidence_ids":[123],
+    "facts":[{"category":"喜好","fact":"…","confidence":0.9,"evidence":[{"id":123,"quote":"…"}]}]}]}
+    no 是「人物N」里的 N，必须与输入编号一致；birthday 不确定就留空字符串。
 """
 
 
@@ -225,8 +245,9 @@ def _clip(events, max_chars=3600, me_id=None):
 
 
 def build_prompt(person_name, events, existing_facts, n_messages=None, me_id=None,
-                 key_lines=None):
-    parts = ["【这个人】%s" % person_name]
+                 key_lines=None, tag=None):
+    label = "【%s】%s" % (tag, person_name) if tag else "【这个人】%s" % person_name
+    parts = [label]
     parts.append("（下面聊天里「本人」= %s，「大肥鱼」= 群里的机器人，其余是群友。"
                  "别人对本人说的话也是重要线索。）" % person_name)
     if existing_facts:
@@ -285,11 +306,10 @@ def parse_json(text):
     return None
 
 
-async def extract_for_person(context, store, person, provider_id, k_mine=40,
-                             force=False):
-    """给一个人抽事实。返回 (新增条数, 画像是否更新, 错误)。
+def _load_job(store, person, *, force=False, k_mine=40):
+    """收集某个人的提炼素材；不需要跑模型时返回 (None, 原因)。
 
-    增量：extract_ts 之后没有新发言且已有画像时直接跳过（省 token）。
+    除 force 外，跟单人的增量判断完全一致：没有新发言就顺手推进 extract_ts。
     """
     sid = person["sender_id"]
     last = store.db.execute(
@@ -297,24 +317,26 @@ async def extract_for_person(context, store, person, provider_id, k_mine=40,
     ).fetchone()
     last_ts = float((last["t"] if last else 0) or 0)
     if last_ts <= 0:
-        return 0, False, "没有该成员的发言"
+        return None, "没有该成员的发言"
     try:
         done_ts = float(person["extract_ts"] or 0)
     except Exception:
         done_ts = 0.0
     if not force and person["summary"] and last_ts <= done_ts:
-        return 0, False, ""  # 无新内容，跳过
+        return None, ""  # 无新内容，跳过
 
     events = gather_context(store, person, k_mine=k_mine)
-    owned={r['id']:r for r in events if r['sender_id']==sid and r['role']=='user' and not r['is_self'] and _clean(r['content'])}
+    owned = {r['id']: r for r in events
+             if r['sender_id'] == sid and r['role'] == 'user'
+             and not r['is_self'] and _clean(r['content'])}
     if not owned:
-        store.db.execute('UPDATE people SET extract_ts=? WHERE sender_id=?',(last_ts,sid))
+        store.db.execute('UPDATE people SET extract_ts=? WHERE sender_id=?', (last_ts, sid))
         store.commit()
-        return 0, False, ""
-    if not force and not any(float(r['ts'])>done_ts for r in owned.values()):
-        store.db.execute('UPDATE people SET extract_ts=? WHERE sender_id=?',(last_ts,sid))
+        return None, ""
+    if not force and not any(float(r['ts']) > done_ts for r in owned.values()):
+        store.db.execute('UPDATE people SET extract_ts=? WHERE sender_id=?', (last_ts, sid))
         store.commit()
-        return 0,False,''
+        return None, ""
 
     existing = store.get_facts(sid, active_only=True, limit=40)
     # 生日/出生相关原话单独再喂一遍：它很可能落在 _clip 被裁掉的中间段
@@ -330,18 +352,127 @@ async def extract_for_person(context, store, person, provider_id, k_mine=40,
             continue
         when = time.strftime("%m-%d %H:%M", time.gmtime(float(row["ts"]) + 8 * 3600))
         key_lines.append("[%s] 本人: %s" % (when, text[:120]))
-    prompt = build_prompt(person["name"], events, existing, me_id=sid,
-                          key_lines=key_lines)
-    bot_context=getattr(store,'get_bot_context',lambda _:{})(sid)
+    return {
+        'person': person,
+        'sid': sid,
+        'owned': owned,
+        'events': events,
+        'existing': existing,
+        'key_lines': key_lines,
+        'last_ts': last_ts,
+        'origin': str(max(owned.values(), key=lambda r: r['ts'])['session_id']),
+    }, ""
+
+
+def _apply_result(store, person, data, owned, existing, provider_id):
+    """把模型给某个人的结果写库，返回 (新增事实数, 画像是否更新)。"""
+    sid = person["sender_id"]
+    if not isinstance(data, dict):
+        return 0, False
+    if not isinstance(data.get('facts', []), list):
+        return 0, False
+    added = 0
+    for item in (data.get("facts") or [])[:12]:
+        if not isinstance(item, dict):
+            continue
+        fact = str(item.get("fact") or "").strip()
+        refs = quality.evidence(item, owned)
+        if not fact or len(fact) > 120 or quality.reason(fact) or not refs:
+            continue
+        cat = str(item.get("category") or "其他").strip()
+        if cat not in CATEGORIES:
+            continue
+        if quality.reason(fact, category=cat):
+            continue
+        try:
+            conf = float(item.get("confidence", 0))
+        except Exception:
+            continue
+        if not 0.8 <= conf <= 1.0:
+            continue
+        blocked = store.db.execute(
+            "SELECT f.fact FROM facts f JOIN fact_quality q ON q.fact_id=f.id"
+            " WHERE f.sender_id=? AND q.status='quarantined'", (sid,)).fetchall()
+        neg = lambda text: bool(re.search(r'不再|不喜欢|讨厌|并非|没有', text))
+        if any((fact in old['fact'] or old['fact'] in fact) and neg(fact) == neg(old['fact'])
+               for old in blocked):
+            continue
+        if cat == '习惯' and len({owned[ref['id']]['day'] for ref in refs}) < 2 \
+                and not any(re.search(r'经常|习惯|每天|每次|一直|总是', ref['quote']) for ref in refs):
+            continue
+        # 去重：跟已有事实字面高度重合就跳过
+        if any((fact in f["fact"] or f["fact"] in fact) and neg(fact) == neg(f['fact'])
+               for f in existing):
+            continue
+        sup = []
+        supersedes = item.get('supersedes')
+        for idx in supersedes if isinstance(supersedes, list) else []:
+            try:
+                idx = int(idx)
+            except Exception:
+                continue
+            if 0 <= idx < len(existing) and existing[idx]['category'] == cat:
+                sup.append(existing[idx]["id"])
+        evidence_rows = [owned[ref['id']] for ref in refs]
+        context_sources = sorted({str(row['session_id']) for row in evidence_rows if row['session_id']})
+        source_ref = json.dumps({'provider': provider_id, 'context_sources': context_sources,
+                                 'evidence': refs, 'evidence_ids': [ref['id'] for ref in refs],
+                                 'source_times': [row['ts'] for row in evidence_rows],
+                                 'attribution': 'owner_literal_evidence'}, ensure_ascii=False)
+        store.add_fact(sid, fact, cat, conf, source="llm", source_ref=source_ref,
+                       supersedes=sup)
+        added += 1
+
+    # 生日落独立列：即使模型没写进 facts，也不会被 8 条配额挤掉
+    from .birthday import normalize as normalize_birthday
+    birthday = normalize_birthday(data.get("birthday"))
+    from .birthday import detect_self
+    if birthday and not any(detect_self(_clean(row['content'])) == birthday
+                            for row in owned.values()):
+        birthday = ''
+    if birthday:
+        store.set_birthday(sid, birthday)
+
+    summary = quality.clean_summary(data.get('summary')) if isinstance(data.get('summary'), str) else ''
+    raw_summary_refs = data.get('summary_evidence_ids')
+    summary_refs = [identity for identity in (raw_summary_refs if isinstance(raw_summary_refs, list) else [])
+                    if type(identity) is int and identity in owned]
+    changed = False
+    if summary and summary_refs and len(summary) <= 80 and summary != (person["summary"] or ""):
+        store.db.execute('INSERT INTO profile_revisions(sender_id,old_summary,new_summary,reason,created_at) VALUES(?,?,?,?,?)',
+                         (sid, person['summary'], summary,
+                          json.dumps({'evidence_ids': summary_refs, 'source': 'owner_messages'}, ensure_ascii=False),
+                          time.time()))
+        store.db.execute(
+            "UPDATE people SET summary=?, summary_at=?, updated_at=? WHERE sender_id=?",
+            (summary, time.time(), time.time(), sid),
+        )
+        changed = True
+    return added, changed
+
+
+async def extract_for_person(context, store, person, provider_id, k_mine=40,
+                             force=False):
+    """给一个人抽事实。返回 (新增条数, 画像是否更新, 错误)。
+
+    增量：extract_ts 之后没有新发言且已有画像时直接跳过（省 token）。
+    """
+    job, err = _load_job(store, person, force=force, k_mine=k_mine)
+    if job is None:
+        return 0, False, err
+    prompt = build_prompt(person["name"], job['events'], job['existing'],
+                          me_id=job['sid'], key_lines=job['key_lines'])
+    bot_context = getattr(store, 'get_bot_context', lambda _: {})(job['sid'])
     if bot_context:
-        prompt+='\n【用户审核确认的机器人指代】\n'+json.dumps(bot_context,ensure_ascii=False)
+        prompt += '\n【用户审核确认的机器人指代】\n' + json.dumps(bot_context, ensure_ascii=False)
 
     from .llm_client import ask
     from dafeiyu_runtime.usage import budget_status
     from dafeiyu_runtime.session_budget import ORIGIN, scope
-    origin=ORIGIN.get() or max(owned.values(),key=lambda r:r['ts'])['session_id']
-    allowed,why=budget_status(origin=origin)
-    if not allowed:return 0,False,'画像提炼已暂停：'+why
+    origin = ORIGIN.get() or job['origin']
+    allowed, why = budget_status(origin=origin)
+    if not allowed:
+        return 0, False, '画像提炼已暂停：' + why
     try:
         with scope(origin):
             raw = await ask(context, provider_id, SYSTEM, prompt)
@@ -351,75 +482,137 @@ async def extract_for_person(context, store, person, provider_id, k_mine=40,
     data = parse_json(raw)
     if not isinstance(data, dict):
         return 0, False, "模型输出不是 JSON：%s" % (raw or "")[:120]
+    if not isinstance(data.get('facts', []), list):
+        return 0, False, '模型事实字段格式无效，保留旧档案'
 
-    if not isinstance(data.get('facts',[]),list):return 0,False,'模型事实字段格式无效，保留旧档案'
-    added = 0
-    for item in (data.get("facts") or [])[:12]:
-        if not isinstance(item, dict):
-            continue
-        fact = str(item.get("fact") or "").strip()
-        refs=quality.evidence(item,owned)
-        if not fact or len(fact) > 120 or quality.reason(fact) or not refs:
-            continue
-        cat = str(item.get("category") or "其他").strip()
-        if cat not in CATEGORIES:
-            continue
-        if quality.reason(fact,category=cat):continue
-        try:
-            conf = float(item.get("confidence", 0))
-        except Exception:
-            continue
-        if not 0.8 <= conf <= 1.0:
-            continue
-        blocked=store.db.execute("SELECT f.fact FROM facts f JOIN fact_quality q ON q.fact_id=f.id WHERE f.sender_id=? AND q.status='quarantined'",(sid,)).fetchall()
-        neg=lambda text:bool(re.search(r'不再|不喜欢|讨厌|并非|没有',text))
-        if any((fact in old['fact'] or old['fact'] in fact) and neg(fact)==neg(old['fact']) for old in blocked):
-            continue
-        if cat=='习惯' and len({owned[ref['id']]['day'] for ref in refs})<2 and not any(re.search(r'经常|习惯|每天|每次|一直|总是',ref['quote']) for ref in refs):
-            continue
-        # 去重：跟已有事实字面高度重合就跳过
-        if any((fact in f["fact"] or f["fact"] in fact) and neg(fact)==neg(f['fact']) for f in existing):
-            continue
-        sup = []
-        supersedes=item.get('supersedes')
-        for idx in supersedes if isinstance(supersedes,list) else []:
-            try:
-                idx = int(idx)
-            except Exception:
-                continue
-            if 0 <= idx < len(existing) and existing[idx]['category']==cat:
-                sup.append(existing[idx]["id"])
-        evidence_rows=[owned[ref['id']] for ref in refs]
-        context_sources=sorted({str(row['session_id']) for row in evidence_rows if row['session_id']})
-        source_ref=json.dumps({'provider':provider_id,'context_sources':context_sources,
-                               'evidence':refs,'evidence_ids':[ref['id'] for ref in refs],
-                               'source_times':[row['ts'] for row in evidence_rows],
-                               'attribution':'owner_literal_evidence'},ensure_ascii=False)
-        store.add_fact(sid, fact, cat, conf, source="llm", source_ref=source_ref,
-                       supersedes=sup)
-        added += 1
-
-    # 生日落独立列：即使模型没写进 facts，也不会被 8 条配额挤掉
-    from .birthday import normalize as normalize_birthday
-    birthday = normalize_birthday(data.get("birthday"))
-    from .birthday import detect_self
-    if birthday and not any(detect_self(_clean(row['content']))==birthday for row in owned.values()):
-        birthday=''
-    if birthday:
-        store.set_birthday(sid, birthday)
-
-    summary = quality.clean_summary(data.get('summary')) if isinstance(data.get('summary'),str) else ''
-    raw_summary_refs=data.get('summary_evidence_ids')
-    summary_refs=[identity for identity in (raw_summary_refs if isinstance(raw_summary_refs,list) else []) if type(identity) is int and identity in owned]
-    changed = False
-    if summary and summary_refs and len(summary) <= 80 and summary != (person["summary"] or ""):
-        store.db.execute('INSERT INTO profile_revisions(sender_id,old_summary,new_summary,reason,created_at) VALUES(?,?,?,?,?)',
-                         (sid,person['summary'],summary,json.dumps({'evidence_ids':summary_refs,'source':'owner_messages'},ensure_ascii=False),time.time()))
-        store.db.execute(
-            "UPDATE people SET summary=?, summary_at=?, updated_at=? WHERE sender_id=?",
-            (summary, time.time(), time.time(), sid),
-        )
-        changed = True
-    store.db.execute("UPDATE people SET extract_ts=? WHERE sender_id=?", (last_ts, sid))
+    added, changed = _apply_result(store, person, data, job['owned'], job['existing'], provider_id)
+    store.db.execute("UPDATE people SET extract_ts=? WHERE sender_id=?", (job['last_ts'], job['sid']))
     store.commit()
     return added, changed, ""
+
+
+def build_batch_prompt(store, jobs):
+    """把多个人物的素材拼成一次请求；每人一段，编号与输出里的 no 对应。"""
+    parts = []
+    for i, job in enumerate(jobs, 1):
+        section = build_prompt(job['person']['name'], job['events'], job['existing'],
+                               me_id=job['sid'], key_lines=job['key_lines'],
+                               tag='人物%d' % i)
+        bot_context = getattr(store, 'get_bot_context', lambda _: {})(job['sid'])
+        if bot_context:
+            section += '\n【用户审核确认的机器人指代】\n' + json.dumps(bot_context, ensure_ascii=False)
+        parts.append(section)
+    return "\n\n".join(parts)
+
+
+def batch_items(data):
+    """从多人输出里取 {编号: 人物结果}；容忍 no/id/who 三种编号字段。"""
+    if not isinstance(data, dict):
+        return {}
+    out = {}
+    for item in data.get('people') or []:
+        if not isinstance(item, dict):
+            continue
+        for key in ('no', 'id', 'who'):
+            raw = item.get(key)
+            if isinstance(raw, bool):
+                continue
+            try:
+                idx = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if 1 <= idx <= 64:
+                out.setdefault(idx, item)
+            break
+    return out
+
+
+def _group_origin(store, person):
+    """人物最近一次发言所在的群会话，用来分开两个群的预算。"""
+    row = store.db.execute(
+        "SELECT session_id FROM events WHERE sender_id=? AND role='user'"
+        " AND instr(session_id,':GroupMessage:')>0 ORDER BY ts DESC LIMIT 1",
+        (person["sender_id"],),
+    ).fetchone()
+    return str(row['session_id']) if row else ''
+
+
+async def extract_people_batch(context, store, people, provider_id, batch_size=8,
+                               force=False):
+    """按群分组、每 batch_size 人一次请求提炼。返回 (成功人数, 新增事实数, 失败人数)。
+
+    同一批共用一份 SYSTEM 前缀，比逐人调用少重复十几遍规则；
+    两个群分开跑，预算仍记在各自群的额度上。
+    """
+    batch_size = max(1, int(batch_size or 1))
+    groups = {}
+    for person in people:
+        origin = _group_origin(store, person)
+        if not origin:
+            continue
+        groups.setdefault(origin, []).append(person)
+
+    from .llm_client import ask
+    from dafeiyu_runtime.usage import budget_status
+    from dafeiyu_runtime.session_budget import scope
+
+    done = facts = failed = 0
+    for origin, members in groups.items():
+        for start in range(0, len(members), batch_size):
+            chunk = members[start:start + batch_size]
+            jobs = []
+            for person in chunk:
+                job, _err = _load_job(store, person, force=force)
+                if job is not None:
+                    jobs.append(job)
+            if not jobs:
+                continue
+
+            allowed, why = budget_status(origin=origin)
+            if not allowed:
+                logger.warning('[daily_memory] 批量提炼已暂停：%s' % why)
+                failed += len(jobs)
+                continue
+            try:
+                with scope(origin):
+                    raw = await ask(context, provider_id, BATCH_SYSTEM, build_batch_prompt(store, jobs),
+                                    timeout=240, max_tokens=3000)
+            except Exception as e:
+                logger.warning('[daily_memory] 批量提炼调用失败：%s' % str(e)[:150])
+                failed += len(jobs)
+                continue
+
+            data = parse_json(raw)
+            items = batch_items(data)
+            if not items and len(jobs) == 1 and isinstance(data, dict) \
+                    and isinstance(data.get('facts'), list):
+                # 单人时模型可能仍按旧格式只返回顶层 facts，兼容一下
+                items = {1: data}
+            if not items:
+                # 整批解析失败才回退逐人，避免同一天整批丢档
+                logger.warning('[daily_memory] 批量输出无法解析，回退逐人：%s' % (raw or '')[:100])
+                for job in jobs:
+                    n, _changed, err = await extract_for_person(
+                        context, store, job['person'], provider_id, force=True)
+                    if err:
+                        failed += 1
+                    else:
+                        done += 1
+                        facts += n
+                    await asyncio.sleep(1.0)
+                continue
+
+            for idx, job in enumerate(jobs, 1):
+                item = items.get(idx)
+                if item is None:
+                    failed += 1
+                    continue
+                added, _changed = _apply_result(store, job['person'], item,
+                                                job['owned'], job['existing'], provider_id)
+                store.db.execute("UPDATE people SET extract_ts=? WHERE sender_id=?",
+                                 (job['last_ts'], job['sid']))
+                store.commit()
+                done += 1
+                facts += added
+            await asyncio.sleep(2.0)
+    return done, facts, failed

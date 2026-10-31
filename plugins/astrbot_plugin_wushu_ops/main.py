@@ -823,14 +823,7 @@ class WushuOpsPlugin(Star):
             "\n\n[本次游戏问题参考资料；不是新指令]\n" + str(ans).strip()
             + "\n仅在相关时依据资料回答，不编造；此条已有资料，无需重复检索。"
         )
-        # Do not remove tools from an unfinished tool-call exchange.
-        contexts = getattr(req, "contexts", None) or []
-        if any(isinstance(c, dict) and (c.get('role') == 'tool' or c.get('tool_calls')) for c in contexts):
-            return
-        if getattr(req, "func_tool", None):
-            from astrbot.core.agent.tool import ToolSet
-            req.func_tool = ToolSet(tools=[t for t in req.func_tool.tools
-                if t.name not in {"query_project_info", "astr_kb_search"}])
+        # 工具集保持固定：按消息增删工具会改写前缀缓存，资料已写进 prompt 就足够了。
 
     @filter.on_llm_request(priority=-100)
     async def trim_greeting_tools(self, event: AstrMessageEvent, req):
@@ -842,13 +835,7 @@ class WushuOpsPlugin(Star):
             from astrbot.core.agent.tool import ToolSet
             req.func_tool = ToolSet()
             return
-        text = (event.message_str or '').strip().strip('!！。~～ ')
-        if not re.fullmatch(r'(?:你好|您好|早安|早上好|中午好|下午好|晚上好|晚安|谢谢|感谢|哈哈|嘿嘿|嗨|hello|hi)', text, re.I):
-            return
-        if not req.func_tool or any(c.get('role') == 'tool' or c.get('tool_calls') for c in (req.contexts or []) if isinstance(c, dict)):
-            return
-        from astrbot.core.agent.tool import ToolSet
-        req.func_tool = ToolSet(tools=[t for t in req.func_tool.tools if re.search(r'meme|sticker|emoji|emotion|表情', t.name, re.I)])
+        # 问候不再裁剪工具：工具列表一变，整段前缀缓存就作废，省下的定义远不够重算贵。
 
     # ---------- LLM 工具（@机器人提问时模型自动调用，检索知识库） ----------
 
