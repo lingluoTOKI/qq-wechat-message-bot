@@ -64,14 +64,14 @@ PLUGIN_NAME = "dafeiyu_daily_memory"
 SYNC_INTERVAL = 600  # 后台同步间隔（秒）；纯 sqlite 读写，不产生 token
 
 
-def pick_facts(rows, limit=6, query=''):
+def pick_facts(rows, limit=6, query='', summary=''):
     """挑要注入的事实：稳定项（生日/身份类）置顶，其余按时间倒序补齐。
 
     为什么不能直接取最新 8 条：注入原来的 SQL 是 created_at DESC LIMIT 8，
     生日这种"很久以前说过、但永远有效"的信息会被后来十几条新事实挤出配额，
     表现出来就是「明明记过，一问又忘了」。这里给稳定事实留出最多 4 个固定位置。
     """
-    return quality.select_facts(rows,query=query,limit=limit)
+    return quality.select_facts(rows,query=query,limit=limit,summary=summary)
 
 
 @register("astrbot_plugin_dafeiyu_daily_memory", "TOKI",
@@ -215,7 +215,7 @@ class DailyMemoryPlugin(Star):
 
     @filter.command("记忆")
     async def mem_cmd(self, event: AstrMessageEvent, arg: GreedyStr):
-        """记忆：/记忆 状态 | 同步 | 回填 | 找 <人> | 生日 | 生日预览 <人>"""
+        """记忆：/记忆 状态 | 同步 | 回填 | 找 <人> | 提炼 [人|全部] | 重炼 <人> | 生日 | 生日预览 <人>"""
         event.stop_event()
         arg = (arg or "").strip()
         if arg=='画像':
@@ -284,7 +284,8 @@ class DailyMemoryPlugin(Star):
                 text += "\n\n最近说过：\n" + recent
             yield event.plain_result(text[:1800])
             return
-        if arg.startswith("提炼"):
+        if arg.startswith(("提炼", "重炼")):
+            force = arg.startswith("重炼")
             who = arg[2:].strip()
             pid = str(self.config.get("extract_provider_id", "xiaomi/mimo-v2.6-flash"))
             if who in ("全部", "all", ""):
@@ -298,7 +299,7 @@ class DailyMemoryPlugin(Star):
                     batch_size = 8
                 ok, total_facts, fail = await extract_people_batch(
                     self.context, self.store, people, pid,
-                    batch_size=max(1, min(20, batch_size)))
+                    batch_size=max(1, min(20, batch_size)), force=force)
                 yield event.plain_result(
                     "批量提炼完成：%d 人成功（新增 %d 条事实），%d 人失败。"
                     % (ok, total_facts, fail))
@@ -307,8 +308,8 @@ class DailyMemoryPlugin(Star):
             if p is None:
                 yield event.plain_result("没找到「%s」。" % who)
                 return
-            yield event.plain_result("正在提炼「%s」的档案…" % p["name"])
-            n, changed, err = await extract_for_person(self.context, self.store, p, pid)
+            yield event.plain_result("正在%s「%s」的档案…" % ("重炼" if force else "提炼", p["name"]))
+            n, changed, err = await extract_for_person(self.context, self.store, p, pid, force=force)
             if err:
                 yield event.plain_result("提炼失败：%s" % err)
                 return
@@ -365,13 +366,16 @@ class DailyMemoryPlugin(Star):
             sid = person["sender_id"]
             # 生日单独一行、不占事实配额：查库没有再现场从归档里抽一次
             bd = (person["birthday"] or "").strip() or birthday.refresh(self.store, sid)
-            facts = pick_facts(self.store.get_facts(sid, active_only=True, limit=40),query=str(getattr(event,'message_str','') or ''))
-            if not person["summary"] and not facts and not bd:
+            summary = quality.clean_summary(person["summary"])
+            facts = pick_facts(self.store.get_facts(sid, active_only=True, limit=40),
+                               query=str(getattr(event,'message_str','') or ''), summary=summary)
+            if not summary and not facts and not bd:
                 return
 
             lines = ["[你记得这个人（来自你们以前的聊天，不是本次对话）]"]
             lines.append('来源：全局共享的跨会话汇总，旧事实来源未记录；不可默认属于当前群。')
-            lines.append("%s：%s" % (person["name"], quality.clean_summary(person["summary"])))
+            if summary:
+                lines.append("%s：%s" % (person["name"], summary))
             bot_note=quality.bot_context_note(self.store.get_bot_context(sid))
             if bot_note:lines.append(bot_note)
             if bd:
