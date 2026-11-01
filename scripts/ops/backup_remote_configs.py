@@ -28,6 +28,8 @@ FILES = {
     "livingmemory": f"{DATA_ROOT}/config/astrbot_plugin_livingmemory_config.json",
     "biliread": f"{DATA_ROOT}/config/astrbot_plugin_biliread_config.json",
     "bilibili": f"{DATA_ROOT}/config/astrbot_plugin_bilibili_config.json",
+    # 颜文字库是数据文件，但改动后需可追溯，一并快照
+    "kaomoji": f"{DATA_ROOT}/plugin_data/astrbot_plugin_kaomoji/kaomoji.json",
 }
 
 # 键名直接视为凭据

@@ -18,6 +18,7 @@ python scripts/ops/backup_remote_configs.py
 | `biliread.snapshot.json` | `config/astrbot_plugin_biliread_config.json` | B 站读取参数（字幕/评论/视觉） |
 | `bilibili.snapshot.json` | `config/astrbot_plugin_bilibili_config.json` | 订阅推送参数、`llm_tools_enabled` 开关 |
 | `agent_runner.compression.snapshot.json` | `cmd_config.json` 的 `agent_runner.config.compression` | 上下文压缩参数（`max_turns 40`、`keep_recent_ratio 0.3`） |
+| `kaomoji.snapshot.json` | `plugin_data/astrbot_plugin_kaomoji/kaomoji.json` | 颜文字库；已把 `。~…` 换成视觉近似的 `｡～⋯`，避免分段回复在颜文字内部断句 |
 
 ## 脱敏规则
 
