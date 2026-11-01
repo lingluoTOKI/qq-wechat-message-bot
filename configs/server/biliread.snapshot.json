@@ -1,0 +1,19 @@
+{
+  "llm_provider_id": "zhipu/glm-5.3",
+  "bilibili_cookie": "",
+  "max_subtitle_length": 4000,
+  "enable_comments": true,
+  "comment_count": 20,
+  "enable_asr": true,
+  "asr_provider_id": "xiaomi/mimo-v2.5-asr",
+  "asr_max_seconds": 180,
+  "asr_min_comment_chars": 200,
+  "max_desc_length": 200,
+  "enable_vision": true,
+  "vision_api_key": "",
+  "vision_api_base": "https://open.bigmodel.cn/api/paas/v4",
+  "vision_model": "glm-4v-flash",
+  "vision_max_frames": 3,
+  "vision_max_seconds": 60,
+  "vision_timeout": 30
+}

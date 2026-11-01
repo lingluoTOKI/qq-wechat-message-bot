@@ -1,0 +1,20 @@
+{
+  "sessdata": "",
+  "proxy": "",
+  "bangumi_token": "",
+  "interval_secs": 300,
+  "task_gap_secs": 20,
+  "reconnect_silent": true,
+  "rai": true,
+  "renderer_template": "simple",
+  "node": true,
+  "enable_parse_miniapp": true,
+  "enable_parse_BV": true,
+  "dynamic_limit": 5,
+  "recent_dynamic_cache": 4,
+  "plain_push_template": "",
+  "plain_push_forward_template": "",
+  "enable_ai_summary": false,
+  "ai_summary_prompt": "",
+  "llm_tools_enabled": false
+}
