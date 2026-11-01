@@ -19,6 +19,7 @@ from astrbot.api.event.filter import (
 from astrbot.api.message_components import Image, Plain
 from astrbot.api.web import error_response, json_response, request
 from astrbot.core.star.filter.command import GreedyStr
+from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
 
 from .bili_client import BiliClient
 from .core.bili_login import BiliLoginError, BiliQrLoginClient
@@ -78,6 +79,7 @@ class Main(Star):
         self.bangumi_token = (self.cfg.get("bangumi_token", "") or "").strip()
         # 读取样式配置
         self.style = self.cfg.get("renderer_template", DEFAULT_TEMPLATE)
+        self._sync_biliread_cookie()
 
         self.data_manager = DataManager(
             recent_dynamic_cache=self.cfg.get(
@@ -132,28 +134,49 @@ class Main(Star):
             subscription_service=self.subscription_service,
         )
         self._register_subscription_page_apis()
-        llm_tools = (
-            BgmAdvancedSubjectSearchTool(
-                token=self.bangumi_token,
-            ),
-            BgmRecommendHotSubjectsTool(
-                token=self.bangumi_token,
-            ),
-            BgmDailyTool(
-                token=self.bangumi_token,
-            ),
-            BiliSearchHotVideosTool(
-                bili_client=self.bili_client,
-            ),
-            BiliUserDynamicsTool(
-                bili_client=self.bili_client,
-                parse_dynamics=self.dynamic_listener._parse_and_filter_dynamics,
-            ),
-        )
-        self.context.add_llm_tools(*llm_tools)
+        # bgm/B站搜索类工具定义体积大且调用频率低，默认不注册以降低每轮固定 token
+        if self.cfg.get("llm_tools_enabled", False):
+            llm_tools = (
+                BgmAdvancedSubjectSearchTool(
+                    token=self.bangumi_token,
+                ),
+                BgmRecommendHotSubjectsTool(
+                    token=self.bangumi_token,
+                ),
+                BgmDailyTool(
+                    token=self.bangumi_token,
+                ),
+                BiliSearchHotVideosTool(
+                    bili_client=self.bili_client,
+                ),
+                BiliUserDynamicsTool(
+                    bili_client=self.bili_client,
+                    parse_dynamics=self.dynamic_listener._parse_and_filter_dynamics,
+                ),
+            )
+            self.context.add_llm_tools(*llm_tools)
         self._configure_reconnect_silent()
 
         self._start_tasks()
+
+    def _sync_biliread_cookie(self) -> None:
+        """复用 BiliRead 的 B 站登录态，避免两处 sessdata 各自过期。"""
+        try:
+            cfg_path = (
+                Path(get_astrbot_plugin_data_path())
+                / ".."
+                / "config"
+                / "astrbot_plugin_biliread_config.json"
+            )
+            data = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
+            sessdata = str(
+                (data.get("bilibili_cookie") or {}).get("sessdata") or ""
+            ).strip()
+            if sessdata and sessdata != str(self.cfg.get("sessdata") or "").strip():
+                self.cfg["sessdata"] = sessdata
+                logger.info("[astrbot_plugin_bilibili] 已复用 BiliRead 的 B 站登录态")
+        except Exception as exc:
+            logger.debug(f"[astrbot_plugin_bilibili] 读取 BiliRead 登录态失败: {exc}")
 
     def _register_subscription_page_apis(self) -> None:
         """注册由订阅管理 Plugin Page 调用的受保护 API。"""
