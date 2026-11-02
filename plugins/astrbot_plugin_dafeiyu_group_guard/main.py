@@ -24,6 +24,13 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Star, register
 
+# 补答是后台任务、没有事件上下文，必须手动把来源会话塞进预算门的 ORIGIN，
+# 否则 httpx 层的 request_capture 会以「未确定来源会话」拒绝付费请求。
+try:
+    from dafeiyu_runtime.session_budget import scope as _budget_scope
+except Exception:  # 预算运行时缺失时补答直接放弃，不硬调
+    _budget_scope = None
+
 PLUGIN = "astrbot_plugin_dafeiyu_group_guard"
 SUPPLEMENT = "/AstrBot/data/plugin_data/astrbot_plugin_cost_control/supplement.db"
 CONFIG_PATH = Path("/AstrBot/data/plugin_data") / PLUGIN / "config.json"
@@ -262,7 +269,18 @@ class GroupGuardPlugin(Star):
                 try:
                     text = await self._compose(umo, items, int(slot.get("dropped") or 0), now, cfg)
                 except Exception as exc:
-                    logger.warning(f"[group_guard] 补答生成失败 {umo}：{str(exc)[:160]}")
+                    # 生成失败（临时预算/网络故障等）把消息放回队列，下轮重试，
+                    # 避免一次失败就丢整批；请求若在预算门被拦不会产生花费，
+                    # 最终由 peak_queue_max_age_minutes 的 TTL 兜底清理。
+                    slot["fails"] = int(slot.get("fails") or 0) + 1
+                    log = logger.warning if slot["fails"] <= 3 else logger.debug
+                    log(f"[group_guard] 补答生成失败（第 {slot['fails']} 次，已放回队列） "
+                        f"{umo}：{str(exc)[:160]}")
+                    pending = self._queue.setdefault(umo, {"items": [], "dropped": 0})
+                    pending["items"][0:0] = slot["items"]
+                    pending["dropped"] = (int(pending.get("dropped") or 0)
+                                          + int(slot.get("dropped") or 0))
+                    pending["fails"] = slot["fails"]
                     continue
                 if not text:
                     continue
@@ -363,7 +381,12 @@ class GroupGuardPlugin(Star):
                 raise RuntimeError("模型返回空文本")
             return text
 
-        return await asyncio.wait_for(_run(), timeout=timeout)
+        if _budget_scope is None:
+            raise RuntimeError("预算运行时不可用，暂停补答")
+        # 补答没有消息事件，手动把群会话设为预算来源；to_thread 会复制 context，
+        # 下游 request_capture 的预算检查因此能识别群来源，并把花费记到该群额度。
+        with _budget_scope(umo):
+            return await asyncio.wait_for(_run(), timeout=timeout)
 
     async def _send(self, umo: str, text: str) -> bool:
         try:
