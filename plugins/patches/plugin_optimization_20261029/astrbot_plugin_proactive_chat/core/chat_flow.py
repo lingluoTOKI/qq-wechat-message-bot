@@ -139,6 +139,18 @@ def _schedule_multiplier(schedules: dict, pid: str, start_time: float) -> float:
             mult *= float(adj.get("value") or 1.0)
     return mult
 
+def _is_peak_time(now: datetime) -> bool:
+    """判断当前是否处于高峰时段（工作日北京时间 09:00-12:00、14:00-18:00）。
+
+    与 group_guard 插件的高峰休眠规则保持一致。主动消息走 provider.text_chat()
+    直连、不经过 on_llm_request 钩子，group_guard 拦不到，必须在这里自行判断，
+    否则高峰段仍会主动发言、花双倍的钱。
+    """
+    if now.weekday() >= 5:
+        return False
+    return 9 <= now.hour < 12 or 14 <= now.hour < 18
+
+
 class ProactiveCoreMixin:
     """主动消息核心执行流混入类。"""
 
@@ -175,6 +187,10 @@ class ProactiveCoreMixin:
         schedule_conf = session_config.get("schedule_settings", {})
         if is_quiet_time(schedule_conf.get("quiet_hours", "1-7"), self.timezone):
             return False, "quiet_hours"
+
+        # 高峰时段不主动说话，避免双倍价格
+        if _is_peak_time(datetime.now(self.timezone)):
+            return False, "peak_hours"
 
         return True, "allowed"
 
@@ -371,6 +387,8 @@ class ProactiveCoreMixin:
             if not is_allowed:
                 if block_reason == "quiet_hours":
                     logger.info("[主动消息] 当前为免打扰时段，跳过并重新调度喵。")
+                elif block_reason == "peak_hours":
+                    logger.info("[主动消息] 当前为高峰时段，不主动说话，跳过并重新调度喵。")
                 elif block_reason == "session_disabled":
                     logger.info(
                         f"[主动消息] {self._get_session_log_str(normalized_session_id)} 已被禁用，跳过并重新调度喵。"

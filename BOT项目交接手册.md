@@ -954,10 +954,11 @@ B3077F0FCFC1F29CBD8B7A5C083F0434=虚拟的未来会梦到电子天依吗？
 
 ---
 
-## 16. 群聊日额度 + 高峰休眠（`dafeiyu_group_guard` v1.0.0）
+## 16. 群聊日额度 + 高峰休眠（`dafeiyu_group_guard` v1.1.0）
 
-> 2026-10-29 20:00 上线。目标：群聊每天最多只花 ¥0.5，高峰时段（双倍价）直接不开口，私聊完全放开。
-> 实现是**独立小插件**（约 160 行），不改进程内其他插件，也不碰 AstrBot 内核。
+> 2026-10-29 20:00 上线，2026-11-02 升到 v1.1.0（休眠期消息缓存 + 醒来补答）。
+> 目标：群聊每天最多只花 ¥0.5，高峰时段（双倍价）直接不开口，私聊完全放开。
+> 实现是**独立小插件**，不改进程内其他插件，也不碰 AstrBot 内核。
 
 ### 16.1 规则（三层，从上到下依次生效）
 
@@ -967,7 +968,10 @@ B3077F0FCFC1F29CBD8B7A5C083F0434=虚拟的未来会梦到电子天依吗？
 | 2 | **群日额度** | 该群当日累计 ≥ ¥0.5（账单估算） | 当日该群不再回复，发一次额度提示；私聊照常 |
 | 3 | 全局兜底 | cost_control `global_daily` ¥1.0 | 整机停（既有逻辑，未改动） |
 
-- **不补答**：休眠/超额期间收到的消息直接 `stop_event()` 丢弃，**不排队**；恢复后只回新消息。
+- **休眠期补答（v1.1.0）**：高峰期间本来要回的消息进内存队列（每群最多 `peak_queue_max_messages` 条），12:00 / 18:00 恢复后按群合成一段回复补发；超过 `peak_queue_max_age_minutes` 的旧消息丢弃。
+- **超额不补答**：额度用尽期间的消息仍然直接 `stop_event()` 丢弃；醒来时若该群额度已满，队列也一并丢弃，不烧钱补答。
+- **只补「本来要回」的消息**：队列在 `on_llm_request` 钩子里写入，没 @ 到 bot、不触发回复的闲聊不会入队。
+- **主动消息高峰也停（2026-11-02）**：`proactive_chat` 补丁在 `_is_chat_allowed` 里加了高峰判断，工作日高峰段的主动消息（私聊主动找人 / 群聊破冰）直接 `peak_hours` 跳过重调度，避免双倍价主动发言。主动消息走 `provider.text_chat()` 不走 `on_llm_request`，本插件拦不到，必须改它自己。
 - **额度按群独立**：群 A 花满 0.5 不影响群 B；私聊不计入群额度。
 - **生效起点**：`effective_from`（默认 10-29 20:00）之后的花费才计入当天，避免上线瞬间因历史花费被静默。
 
@@ -996,7 +1000,14 @@ B3077F0FCFC1F29CBD8B7A5C083F0434=虚拟的未来会梦到电子天依吗？
 | `peak_sleep` | true | 高峰休眠开关 |
 | `peak_windows` | `[[9,12],[14,18]]` | 高峰窗口（北京时间，左闭右开） |
 | `peak_weekdays_only` | true | 仅工作日 |
-| `notice_peak` / `notice_budget` | 见文件 | 提示文案，`{end}` / `{budget}` 会被替换 |
+| `peak_queue` | true | 休眠期消息缓存开关 |
+| `peak_queue_max_messages` | 20 | 每群每次休眠最多缓存条数（超出丢最旧） |
+| `peak_queue_max_age_minutes` | 300 | 超过 5 小时的旧消息不补答 |
+| `peak_queue_poll_seconds` | 30 | 醒来后多久检查一次队列 |
+| `catchup_provider_id` | 空 | 补答用的模型；留空 = 当前会话默认模型 |
+| `catchup_persona_id` | `12` | 补答用的人设 ID（读 `data_v4.db` 的 `personas` 表） |
+| `catchup_max_tokens` / `catchup_timeout_seconds` | 800 / 60 | 补答单次生成上限与超时 |
+| `notice_peak` / `notice_budget` | 见文件 | 拒绝文案，`notice_peak` 是**列表**（每次随机取一条，避免重复像机器人）；占位符 `{end}` / `{budget}` 会被替换 |
 
 **改配置不用重启**：守卫每次请求都重读 `config.json`；改**代码**才要 `docker restart astrbot`。
 
@@ -1009,6 +1020,8 @@ B3077F0FCFC1F29CBD8B7A5C083F0434=虚拟的未来会梦到电子天依吗？
 | 额度明明没用完却停了 | `effective_from` 写成历史时间，把当天早些时候的花费算进去了 | 改 `effective_from` 为当前时刻 |
 | 额度一直不触发 | `supplement.db` 没有新行（cost_control 未记录） | 核对 `select max(created_at) from cost_supplements` 是否随聊天增长 |
 | 私聊也被拦 | umo 判定异常（不含 `GroupMessage` 才会放行） | 看日志里的 umo 原文；确认是 `FriendMessage` |
+| 醒来没收到补答 | 队列为空（休眠期没人 @ bot）/ 补答发送失败（QQ 主动消息配额）/ 生成失败 | 搜 `醒来补答`；失败时看下一条 warning 的 `send_text` 或 `补答发送失败` |
+| 补答内容不像 bot | 人格读不到（`catchup_persona_id` 与 `data_v4.db` 不匹配） | 日志搜 `读取人格`，核对 `personas.persona_id` |
 | 插件加载即报错 | `main.py` 语法/路径 | 重启后 `grep -Ei 'Traceback\|group_guard'` |
 
 **设计原则**：读耗时数据失败时**放行**（fail-open），只记 warning，不让守卫因数据库锁把整机卡死。

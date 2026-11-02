@@ -7,6 +7,20 @@
   "peak_sleep": true,
   "peak_windows": [[9, 12], [14, 18]],
   "peak_weekdays_only": true,
-  "notice_peak": "嗝——现在是高峰段，我说一句话都要双倍的钱，先眯一会儿。等 {end} 一到我就醒，这会儿要是有事，把话放这儿，我一睁眼就回，不会装死的。",
+  "peak_queue": true,
+  "peak_queue_max_messages": 20,
+  "peak_queue_max_age_minutes": 300,
+  "peak_queue_poll_seconds": 30,
+  "catchup_provider_id": "",
+  "catchup_persona_id": "12",
+  "catchup_max_tokens": 800,
+  "catchup_timeout_seconds": 60,
+  "notice_peak": [
+    "嗝——现在是高峰段，说句话都要双倍的钱，我先眯会儿，等 {end} 就醒，有事把话放这儿。",
+    "困……又到这个贵死人的点了，本鲸先潜水，{end} 再冒泡，回见。",
+    "这个点开口就是给平台白打工，溜了溜了，{end} 我再来。",
+    "（打了个哈欠）高峰段烧钱，我待机到 {end}，真有事别只喊我一声啊。",
+    "嘶——双倍价格太肉疼，我先装死到 {end}，不会真不回来的。"
+  ],
   "notice_budget": "今天的群聊零花钱（¥{budget}）已经花光啦，我先闭嘴到明天 0 点。"
 }
