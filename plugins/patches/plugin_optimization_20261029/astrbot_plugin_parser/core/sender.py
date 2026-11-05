@@ -34,7 +34,6 @@ from .exception import (
     ZeroSizeException,
 )
 from .render import Renderer
-from .utils import transcode_video_audio_to_lc
 
 
 class MessageSender:
@@ -217,8 +216,9 @@ class MessageSender:
 
             match cont:
                 case VideoContent() | DynamicContent():
-                    path = await transcode_video_audio_to_lc(path)
-                    segs.append(self._video_from_path(path))
+                    # 以文件形式原样发送：不做音频转码、不经过 QQ 视频消息转码，
+                    # 保留下载到的原始码流（1080P 文件可直接下载播放）。
+                    segs.append(File(name=path.name, file=self._to_file_uri(path)))
                 case AudioContent():
                     segs.append(
                         File(name=path.name, file=self._to_file_uri(path))
