@@ -1,0 +1,150 @@
+# astrbot_plugin_bilibili 私有改动
+# 基线: 上游 v1.7.2 (github.com/Soulter/astrbot_plugin_bilibili)
+# 来源: 2026-10-29 插件优化审查
+# 内容: 1) 同步 biliread 的 Cookie  2) LLM 工具懒注册以降低每轮固定 token
+# 用法: cd astrbot_plugin_bilibili && git apply --ignore-whitespace <此文件>
+
+--- a/main.py
++++ b/main.py
+@@ -19,6 +19,7 @@
+ from astrbot.api.message_components import Image, Plain
+ from astrbot.api.web import error_response, json_response, request
+ from astrbot.core.star.filter.command import GreedyStr
++from astrbot.core.utils.astrbot_path import get_astrbot_plugin_data_path
+ 
+ from .bili_client import BiliClient
+ from .core.bili_login import BiliLoginError, BiliQrLoginClient
+@@ -78,6 +79,7 @@
+         self.bangumi_token = (self.cfg.get("bangumi_token", "") or "").strip()
+         # 读取样式配置
+         self.style = self.cfg.get("renderer_template", DEFAULT_TEMPLATE)
++        self._sync_biliread_cookie()
+ 
+         self.data_manager = DataManager(
+             recent_dynamic_cache=self.cfg.get(
+@@ -132,28 +134,49 @@
+             subscription_service=self.subscription_service,
+         )
+         self._register_subscription_page_apis()
+-        llm_tools = (
+-            BgmAdvancedSubjectSearchTool(
+-                token=self.bangumi_token,
+-            ),
+-            BgmRecommendHotSubjectsTool(
+-                token=self.bangumi_token,
+-            ),
+-            BgmDailyTool(
+-                token=self.bangumi_token,
+-            ),
+-            BiliSearchHotVideosTool(
+-                bili_client=self.bili_client,
+-            ),
+-            BiliUserDynamicsTool(
+-                bili_client=self.bili_client,
+-                parse_dynamics=self.dynamic_listener._parse_and_filter_dynamics,
+-            ),
+-        )
+-        self.context.add_llm_tools(*llm_tools)
++        # bgm/B站搜索类工具定义体积大且调用频率低，默认不注册以降低每轮固定 token
++        if self.cfg.get("llm_tools_enabled", False):
++            llm_tools = (
++                BgmAdvancedSubjectSearchTool(
++                    token=self.bangumi_token,
++                ),
++                BgmRecommendHotSubjectsTool(
++                    token=self.bangumi_token,
++                ),
++                BgmDailyTool(
++                    token=self.bangumi_token,
++                ),
++                BiliSearchHotVideosTool(
++                    bili_client=self.bili_client,
++                ),
++                BiliUserDynamicsTool(
++                    bili_client=self.bili_client,
++                    parse_dynamics=self.dynamic_listener._parse_and_filter_dynamics,
++                ),
++            )
++            self.context.add_llm_tools(*llm_tools)
+         self._configure_reconnect_silent()
+ 
+         self._start_tasks()
++
++    def _sync_biliread_cookie(self) -> None:
++        """复用 BiliRead 的 B 站登录态，避免两处 sessdata 各自过期。"""
++        try:
++            cfg_path = (
++                Path(get_astrbot_plugin_data_path())
++                / ".."
++                / "config"
++                / "astrbot_plugin_biliread_config.json"
++            )
++            data = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
++            sessdata = str(
++                (data.get("bilibili_cookie") or {}).get("sessdata") or ""
++            ).strip()
++            if sessdata and sessdata != str(self.cfg.get("sessdata") or "").strip():
++                self.cfg["sessdata"] = sessdata
++                logger.info("[astrbot_plugin_bilibili] 已复用 BiliRead 的 B 站登录态")
++        except Exception as exc:
++            logger.debug(f"[astrbot_plugin_bilibili] 读取 BiliRead 登录态失败: {exc}")
+ 
+     def _register_subscription_page_apis(self) -> None:
+         """注册由订阅管理 Plugin Page 调用的受保护 API。"""
+@@ -344,6 +367,11 @@
+         ):
+             self.credential_maintenance_task.cancel()
+ 
++        if self.bili_client.credential is None:
++            self.dynamic_listener_task = None
++            self.credential_maintenance_task = None
++            logger.info('未配置B站凭据，暂停动态轮询；登录后自动启动，解析功能仍可用。')
++            return
+         self.dynamic_listener_task = asyncio.create_task(self.dynamic_listener.start())
+         self.credential_maintenance_task = asyncio.create_task(
+             self._credential_maintenance_loop()
+@@ -982,6 +1010,8 @@
+                         desc = detail_1.get("desc")
+ 
+                         if title == "哔哩哔哩" and qqdocurl:
++                            from dafeiyu_runtime.context import claim_feature
++                            if not claim_feature(event,"media_parse","bilibili"):continue
+                             if "https://b23.tv" in qqdocurl:
+                                 qqdocurl = await self.bili_client.b23_to_bv(qqdocurl)
+                             ret = f"标题: {desc}\n链接: {qqdocurl}"
+@@ -991,6 +1021,8 @@
+                         jumpurl = news.get("jumpUrl", "")
+                         title = news.get("title", "")
+                         if tag == "哔哩哔哩" and jumpurl:
++                            from dafeiyu_runtime.context import claim_feature
++                            if not claim_feature(event,"media_parse","bilibili"):continue
+                             if "https://b23.tv" in jumpurl:
+                                 jumpurl = await self.bili_client.b23_to_bv(jumpurl)
+                             ret = f"标题: {title}\n链接: {jumpurl}"
+--- a/_conf_schema.json
++++ b/_conf_schema.json
+@@ -46,7 +46,11 @@
+         "description": "renderer_template",
+         "type": "string",
+         "hint": "渲染模板",
+-        "options": ["template_1", "template_2", "simple"],
++        "options": [
++            "template_1",
++            "template_2",
++            "simple"
++        ],
+         "default": "template_2"
+     },
+     "node": {
+@@ -102,5 +106,11 @@
+         "type": "text",
+         "hint": "可选，AI 摘要提示词模板。可使用 {content} 代表组装后的动态内容。留空使用内置默认提示词。",
+         "default": ""
++    },
++    "llm_tools_enabled": {
++        "description": "llm_tools_enabled",
++        "type": "bool",
++        "hint": "是否注册 bgm/B站搜索类 LLM 工具。定义体积大且调用频率低，默认关闭以降低每轮固定 token。",
++        "default": false
+     }
+ }
