@@ -55,6 +55,7 @@ def inject_temp_content(req: ProviderRequest, text: str) -> None:
 
 # 解析器下载视频时并发抓好的字幕/评论，存在这里供本插件直接复用
 BRIDGE_DIR = Path(get_astrbot_plugin_data_path()) / "bili_bridge"
+_DUR_CACHE: dict = {}  # (bvid, cid) -> 分P时长(秒), 进程内缓存
 BRIDGE_TTL = 1800
 # 解析器下载好的 mp4，抽帧/转写直接用它，不再二次下载
 PARSER_CACHE_DIR = Path(get_astrbot_plugin_data_path()) / "astrbot_plugin_parser" / "cache"
@@ -154,7 +155,7 @@ async def _fetch_subtitle_once(bvid: str, cid: int, sessdata: str = "") -> str:
     改用同样返回字幕列表的 x/player/v2。
     """
     if not bvid or not cid:
-        return ""
+        return "", 0.0
     headers = {
         "User-Agent": UA,
         "Referer": f"https://www.bilibili.com/video/{bvid}",
@@ -169,14 +170,14 @@ async def _fetch_subtitle_once(bvid: str, cid: int, sessdata: str = "") -> str:
             async with session.get(list_url, headers=headers) as resp:
                 if resp.status != 200:
                     logger.warning(f"BiliRead: 字幕列表 HTTP {resp.status}")
-                    return ""
+                    return "", 0.0
                 subtitle_info = await resp.json(content_type=None)
     except Exception as e:
         logger.warning(f"BiliRead: 读取字幕列表失败: {e}")
-        return ""
+        return "", 0.0
     if (subtitle_info or {}).get("code") != 0:
         logger.warning(f"BiliRead: 字幕列表接口返回 {subtitle_info.get('code')}")
-        return ""
+        return "", 0.0
     subs = (((subtitle_info.get("data") or {}).get("subtitle") or {}).get("subtitles")) or []
     target = None
     for sub in subs:
@@ -187,7 +188,7 @@ async def _fetch_subtitle_once(bvid: str, cid: int, sessdata: str = "") -> str:
         target = subs[0]
     subtitle_url = (target or {}).get("subtitle_url", "")
     if not subtitle_url:
-        return ""
+        return "", 0.0
     if not subtitle_url.startswith("http"):
         subtitle_url = "https:" + subtitle_url
     try:
@@ -200,26 +201,78 @@ async def _fetch_subtitle_once(bvid: str, cid: int, sessdata: str = "") -> str:
             ) as resp:
                 if resp.status != 200:
                     logger.warning(f"BiliRead: 字幕下载 HTTP {resp.status}")
-                    return ""
+                    return "", 0.0
                 subtitle_json = await resp.json(content_type=None)
     except Exception as e:
         logger.warning(f"BiliRead: 字幕下载异常: {e}")
-        return ""
+        return "", 0.0
     body = (subtitle_json or {}).get("body", [])
-    return "\n".join(item.get("content", "") for item in body).strip()
+    if not body:
+        return "", 0.0
+    text = "\n".join(item.get("content", "") for item in body).strip()
+    last_ts = max(float(item.get("to") or 0) for item in body)
+    return text, last_ts
+
+
+async def _page_duration(bvid: str, cid: int, sessdata: str = "") -> float:
+    """取分 P 的真实时长(秒), 用于判断字幕是否属于本视频。
+
+    带 Cookie 请求; 拿不到就返回 0, 上层会因为"无法校验"而放弃字幕。
+    """
+    cached = _DUR_CACHE.get((bvid, int(cid)))
+    if cached is not None:
+        return cached
+    # 用 x/player/pagelist 而不是 x/web-interface/view: 后者对普通 aiohttp
+    # 请求常回 412, pagelist 实测 200 且直接给每个分P 的 duration
+    url = f"https://api.bilibili.com/x/player/pagelist?bvid={bvid}&jsonp=jsonp"
+    headers = {"User-Agent": UA, "Referer": f"https://www.bilibili.com/video/{bvid}"}
+    if sessdata:
+        headers["Cookie"] = "SESSDATA=" + sessdata
+    for attempt in range(2):
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+                async with session.get(url, headers=headers) as resp:
+                    if resp.status != 200:
+                        logger.warning(f"BiliRead: 取时长 HTTP {resp.status}")
+                        continue
+                    payload = await resp.json(content_type=None)
+            for page in (payload.get("data") or []):
+                if int(page.get("cid") or 0) == int(cid):
+                    _DUR_CACHE[(bvid, int(cid))] = float(page.get("duration") or 0)
+                    return _DUR_CACHE[(bvid, int(cid))]
+            logger.warning(f"BiliRead: pagelist 里没找到 cid={cid} 的分P")
+        except Exception as e:
+            logger.warning(f"BiliRead: 取视频时长失败({attempt+1}/2): {e}")
+    _DUR_CACHE[(bvid, int(cid))] = 0.0
+    return 0.0
 
 
 async def fetch_subtitle(bvid: str, cid: int, sessdata: str = "") -> str:
-    """取中文字幕正文，多取几次保留最长的一份。
+    """取中文字幕正文。
 
-    B 站 AI 字幕是分片下发的，单次请求可能只给一小段（甚至空），
-    多请求几次取最长的那份；已经够长就不再等。
+    注意: x/player/v2 返回的签名字幕 URL 会命中共享缓存, 实测同一条视频连续
+    抓 5 次拿到 5 种内容(3 次是别人的视频)。所以不再"取最长", 而是按
+    "字幕时间轴要覆盖整段视频"(实测真字幕 ~100%, 串台样本 5%/78%/571%)
+    逐次筛选, 不合格直接丢弃, 交给上层走评论/ASR/视觉兜底。
     """
+    duration = await _page_duration(bvid, cid, sessdata)
+    if duration <= 0:
+        # 无法校验就不认字幕: 宁可走评论/ASR/视觉, 也不能把别人的视频喂给模型
+        logger.warning("BiliRead: 视频时长未知, 跳过字幕改用其它兜底")
+        return ""
     best = ""
     for attempt in range(1, SUBTITLE_ATTEMPTS + 1):
-        text = await _fetch_subtitle_once(bvid, cid, sessdata)
-        if len(text) > len(best):
-            best = text
+        text, last_ts = await _fetch_subtitle_once(bvid, cid, sessdata)
+        if text:
+            coverage = last_ts / duration
+            if 0.88 <= coverage <= 1.12:
+                if len(text) > len(best):
+                    best = text
+            else:
+                logger.warning(
+                    f"BiliRead: 字幕疑似串台已丢弃(末 {last_ts:.0f}s / 视频 {duration:.0f}s, "
+                    f"覆盖 {coverage:.0%})"
+                )
         if len(best) >= SUBTITLE_ENOUGH:
             break
         if attempt < SUBTITLE_ATTEMPTS:
@@ -666,6 +719,17 @@ class BilibiliTool(FunctionTool[AstrAgentContext]):
 
             # 5. 字幕和评论都要
             subtitle_text = str((cache or {}).get("subtitle") or "")
+            # 解析器缓存的字幕同样来自 x/player/v2, 会串台。用"语速"做判据:
+            # 正常口播 2~5 字/秒, 串台样本实测 17 字/秒(4 分钟视频塞了 4013 字)。
+            # 注意解析器会截断到 ~4000 字, 所以只卡上限, 不卡"太短"。
+            if subtitle_text and duration > 0:
+                cps = len(subtitle_text) / duration
+                if cps > 8.0:
+                    logger.warning(
+                        f"BiliRead: 解析器缓存字幕疑似串台已丢弃"
+                        f"({len(subtitle_text)}字/{duration}s = {cps:.1f}字/秒)"
+                    )
+                    subtitle_text = ""
             if not subtitle_text:
                 # 解析器可能没登录，用本插件凭证再试一次
                 subtitle_text = await fetch_subtitle(bvid, cid, self.sessdata)

@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Plugin runtime data (contains private cookies, subscriptions, generated images)
+data/
+bili_cookies.json
+*.json
+!_conf_schema.json
+
+# Generated images (preserve only repo logos)
+*.png
+!logo.png
+!assets/*.png
+
+# Audio cache
+*.mp3
+*.wav
+*.m4a
+*.flac
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Virtual envs
+venv/
+.venv/
+.env/
+.envrc
