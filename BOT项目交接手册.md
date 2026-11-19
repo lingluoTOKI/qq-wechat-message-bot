@@ -5,7 +5,11 @@
 > **用途**：给任何一个**没有历史上下文**的 AI 助手 / 协作者，在 3 分钟内建立对这套系统的正确认知，
 > 知道「文件在哪、怎么连、哪些事不能乱动、哪些坑已经踩过」。
 >
-> **本版时间**：2026-10-29 16:20（**在 §14 基础上补入 §15「2026-10-29 傍晚：成本口径校正 + 记忆与分群 + 磁盘清理」**）
+> **本版时间**：2026-11-19 10:20（**在 §17 基础上补入 §18「长期记忆图谱治理与运维」**）
+>
+> ⚠️ 本手册 §0–§17 的**成本、命中率、插件数量**等数字多为 2026-10-29~11-02 的实测快照，
+> 越往后越陈旧。**判断当前状态一律现场读数**（§10.1 的命令），不要直接引用本节数字当现状。
+> 最新一轮的系统性改动在 **§18**（记忆图谱），**数据库运维的红线在 §18.6**（必读）。
 > **接手方式**：把本文 §12「30 秒摘要」整段贴给新对话当背景，需要细节时再让它读对应章节。
 > **如果只关心「为什么今天改成这样」**，直接看 **§13（缓存）与 §15（成本口径 / 记忆）**。
 > **如果只关心「现在到底哪些是确凿的、哪些还没验证」**，直接看 **§14 + §15.6**。
@@ -419,6 +423,10 @@ if (persona and persona.get("tools") is None) or not persona:
    `admins_id` 这类必须重启。**改完要实测，别看文件。**
 9. **装插件前先确认名字在 `star_registry` 里**，否则重载会退化成 reload-all，
    所有 handler 重注册 → 工具顺序变化 → 前缀缓存被重置。
+10. **新增或修改 `provider_sources`（模型 provider）必须 `docker restart astrbot`，重载插件无效。**
+    `cmd_config.json` 只在 AstrBot 启动时读一次；只 `touch main.py` 重载插件的话，
+    插件按新 provider ID 找不到，会**静默回退到第一个可用 provider**（新配了 bge-m3 却仍走智谱 embedding-3），
+    全程不报错，看起来"配置成功"。**2026-11-16 踩过**，现象与判据见 §8.8。
 
 ### 8.2 Skills 注入（已解决，但要知道原因）
 
@@ -471,6 +479,68 @@ AstrBot v4.29.3 有个 bug：预算超限走「跳过 LLM」路径时
 - **面板超时不宜太短**：`_tts_server_online()` 原来 6 秒，会误报「离线」，已改 15 秒 + 重试。
 - **`grep` 日志要配 `-v file_data`**：AstrBot 会打大量 base64，容易刷掉有用信息。
 
+### 8.8 换 Embedding 模型 / 新增 provider（2026-11-16 实战记录）
+
+**背景**：LivingMemory 的图谱向量重建报 `400/1210` —— 智谱 `embedding-3` 单条吃不下 4000 个密集中文字符，
+一批里一条超限就整批失败。治理方案是把 `zhipu/embedding-3`（2048 维、付费）
+换成 `siliconflow/BAAI/bge-m3`（1024 维、免费）。
+
+**踩坑经过**：
+
+1. `cmd_config.json` 的 `provider_sources` 加 `siliconflow_embedding`，`provider` 加 `siliconflow/BAAI/bge-m3`
+2. 改 `livingmemory_config.json` 的 `provider_settings.embedding_provider_id`
+3. `touch main.py` 重载插件 → 日志显示「重建完成」，**没有任何报错**
+4. 但 `faiss.read_index()` 读出 **ntotal=97 dim=2048** —— 还是智谱
+   - 指纹 `58b1bbe9…` 没变（插件压根没切 provider）
+   - `livingmemory.index` 795,490 B = 97×2048×4，与换模型前**一模一样**
+
+**根因**：`cmd_config.json` 由 AstrBot 核心在**启动时**加载，插件热重载不会重读。
+插件按新 ID 找不到 provider 时会静默回退到第一个可用的 embedding。
+
+**正确做法**：
+
+```bash
+docker restart astrbot
+```
+
+重启后日志必须出现这两行才算真的生效：
+
+```
+Loading model openai_embedding(siliconflow/BAAI/bge-m3) ...
+[OpenAI Embedding] siliconflow/BAAI/bge-m3 Using API Base: https://api.siliconflow.cn/v1
+```
+
+**换维度会自动重建**：插件检测到 `索引维度=2048, 当前 Embedding Provider 维度=1024` 会打 WARN
+「旧索引将被删除，系统会自动重建索引」，无需手工删。
+
+**判据（别看「成功」日志，看这两个数字）**：
+
+- `faiss.read_index(index).d` 等于新维度（1024）
+- `migration_status.document_vector_provider_fingerprint` 变成新值
+
+**两个无害现象，别误判成故障**：
+
+- 手工移走旧 `livingmemory_graph.index` 后，重建完会打
+  `图谱已切换，但旧图向量清理失败 … RuntimeError: 批量图向量删除未找到文档: [147…243]`。
+  原因是旧 id 在新库里已不存在；日志已明确「保留新一代索引」，实测检索正常。
+- 换维度后旧索引直接失效，不应复用（复用会直接报维度不匹配）。
+
+**bge-m3 实测上限**（真实中文记忆文本，118 篇拼接）：
+
+| 字符数 | prompt_tokens |
+|---|---|
+| 2,000 | 1,479 |
+| 4,000 | 2,948 |
+| 8,000 | 5,848 |
+| 10,000 | 7,271 |
+
+上限 8192 token ≈ **11,000 汉字**。所以原先给智谱设的 4000 截断上限在 bge-m3 下不会踩线 ——
+**即使插件升级把代码补丁覆盖回上游原版，也不会再报 400**，最坏只是向量文本从 8000 退回 4000。
+
+**代价与收益**：bge-m3 在硅基流动免费，替换后智谱 embedding 费用归零；代价是必须全量重算两套索引（维度变了）。
+
+**详细记录**：`docs/livingmemory-图谱向量截断补丁-2026-11-16.md`
+
 ---
 
 ## 9. 待办 / 已知问题
@@ -493,6 +563,9 @@ AstrBot v4.29.3 有个 bug：预算超限走「跳过 LLM」路径时
 | 14 | **旧记忆没有来源标签**（跨群共享池） | 低 | 现无串群实证（§15.4 严格比对 24h = 0 条）；若真出现，再给 50 条活跃记忆按置信度打标（目标脚本已跑通，约 6 成可判） |
 | 15 | 删除 `soulter/astrbot:backup-4.29.1`（2.8G 回滚镜像） | 低 | 4.29.3 才跑几小时，建议观察一周再删；删了可再腾 2.8G |
 | 16 | 每日记忆插件**不能热重载**（有后台任务，terminate 会挂住 API） | 低 | 改它的配置/代码只能 `docker restart astrbot`（约 25 秒） |
+| 17 | **归属型提问串人**（问「我生日几号」可能召回别人的生日） | **高** | 需在召回层加 person/sender 过滤，属上游核心逻辑，**尚未批准**；见 §18.8-1 |
+| 18 | **上游升级会覆盖身份归一补丁** | 中 | 升级后复查两个文件是否仍有 `_SELF_SENDER_ALIASES`，丢了重打（脚本幂等）；见 §18.4 |
+| 19 | 记忆图谱每周维护脚本已上线，但**从未在"有分身"的真实场景跑过** | 低 | 幂等复跑只验证了"0 个待合并"分支；见 §18.5 |
 
 ---
 
@@ -617,6 +690,9 @@ print([x['name'] for x in d['data']])
 > 每轮注入 1.8–3.0k token（挂在末尾，不影响缓存前缀）；`min_importance_for_retrieval` 已从 0.12 调到 **0.3**。
 > 每日情景记忆插件 v0.3.1 已注入「当前会话」标签（群别名在 `session_labels`），她已能答对自己在哪个群；
 > 近 24h 严格比对**未见串群证据**（§15.4）。
+> **知识图谱（11-19 现状）**：934 节点 / 4323 边 / 48 个人物；`mentioned_in` 已按语义重新分级
+> （均值 1.0→0.30，其中 81% 是纯共现降到 0.2）；bot 分身身份已归一，**不会再新建人物节点**；
+> 每周一 04:00 自动维护（合并分身 + 重算边权）。**动数据库前必读 §18.6**——在容器运行中 `cp` 覆盖 = 必然损坏。
 > **成本诊断**：`plugin_data/astrbot_plugin_cost_control/supplement.db` 的 `attribution` 字段最有用。
 >
 > **红线**：① 3.5GB 小机器别乱重启（换 prompt 缓存、踢玩家）；
@@ -1410,6 +1486,237 @@ python -m unittest discover -s tests -p "test_dafeiyu_style.py"
 
 ---
 
+## 18. 2026-11-19 长期记忆图谱治理与运维
+
+> 这一轮全部围绕 **LivingMemory 的知识图谱**：节点名、边权重、bot 分身、备份与恢复。
+> 起因是用户看到面板上「千本の日光.」这个人物节点 **连接度 152 / 权重 326.95**，
+> 点进去发现关联的记忆大多是别人的事——**连接度统计的是"出勤次数"，不是信息量**。
+>
+> **一句话结论**：图谱结构没错，是**边的语义**错了；修法是重新分级边权重，而不是重建图谱。
+
+### 18.1 现状快照（2026-11-19 10:15 实测）
+
+| 项 | 值 | 说明 |
+|---|---|---|
+| `documents` | **165**（active 135 / archived 30） | 每日群聊日记 |
+| `memory_atoms` | **474**（active 309） | 记忆碎片 |
+| `graph_nodes` | **934** | fact 471 / topic 415 / person **48** |
+| `graph_edges` | **4323** | 见 18.3 的 relation 分布 |
+| 检索索引 | **135** | 与 active 文档数一致 |
+| 完整性 | **ok** | `PRAGMA integrity_check` |
+| 悬空边 | **0** | 两端节点都存在的边 |
+
+```bash
+# 一条命令拿到上面全部（容器内执行）
+docker exec astrbot python -c "
+import sqlite3
+c=sqlite3.connect('file:/AstrBot/data/plugin_data/astrbot_plugin_livingmemory/livingmemory.db?mode=ro',uri=True)
+print('integrity:', c.execute('PRAGMA integrity_check').fetchone()[0])
+print('docs/atoms:', c.execute('SELECT COUNT(*) FROM documents').fetchone()[0], c.execute('SELECT COUNT(*) FROM memory_atoms').fetchone()[0])
+print('nodes/edges:', c.execute('SELECT COUNT(*) FROM graph_nodes').fetchone()[0], c.execute('SELECT COUNT(*) FROM graph_edges').fetchone()[0])
+print('person:', c.execute(\"SELECT COUNT(*) FROM graph_nodes WHERE node_type='person'\").fetchone()[0])
+print('index:', c.execute('SELECT COUNT(*) FROM livingmemory_memories_fts_docsize').fetchone()[0])
+"
+```
+
+### 18.2 连接度为什么虚高（✅ 已查清）
+
+| 层 | 机制 |
+|---|---|
+| 抽取 | 每篇日记抽 8 条 fact + 最多 8 个参与者 |
+| 连边 | 把**每条 fact 与当天在场的所有人**各连一条 `mentioned_in`，权重一律 **1.0** |
+| 结果 | 度数 = 这个人「当天在不在场 × 出了几条 fact」，与他是否被 fact 提到无关 |
+| 实证 | 抽查节点 115（千本の日光.）12 条 `mentioned_in`，只有 1 条真以他为主语 |
+
+`graph_edges` 的外键是 **node id**（`source_node_id` / `target_node_id`），不是 `node_key`，FK 级联到 `graph_nodes`。
+改节点必须先迁边、再 `graph_entry_nodes`、最后删节点（见 18.5 的脚本顺序）。
+
+### 18.3 边权重分级（✅ 已执行，一次性脚本 `reweight_edges.py`）
+
+按人名在 fact 正文中的**位置**分级，而不是按"是否在场"：
+
+| 形态 | 判定 | 权重 |
+|---|---|---|
+| 主语 | 人名出现在开头 2 字内、且全文只有这一个人 | **0.90** |
+| 参与者（前段） | 位置 < 全文 35% | 0.70 |
+| 参与者（中段） | 35%~60% | 0.50 |
+| 顺带提及 | 位置 ≥ 60%，或全文 ≥3 人 | 0.30 |
+| **fact 里查无此人** | 纯共现挂靠 | **0.20** |
+| bot 第一人称 | 以「我」开头的自述 | 0.85 |
+
+**关键数字**：1876 条 `mentioned_in` 里 **1520 条（81%）的 fact 正文里连人名都没出现**。
+重算后 `mentioned_in` 均值 1.0 → **0.30**，权重 ≥0.7 的只剩 260 条。
+
+**为什么保留这 1520 条 0.2 的边（✅ 已定，别删）**：
+
+1. 抽取逻辑属上游，删了明天新日记还会长回来——治标不治本；
+2. `0.2 × graph_route_weight 0.15 ≈ 0.03`，对召回几乎没有影响，删它要动 `graph_entries`，风险大于收益；
+3. 它仍有独立价值：记录「某人那天在场」，是时间线线索。
+
+→ 因此改成**定期重算**（18.5），而不是清洗。
+
+relation 分布（重算后）：`describes` 1921（均值 0.98）/ `mentioned_in` 1876（均值 0.30）/ `co_occurs_with` 526（0.30）。
+
+### 18.4 bot 分身节点与身份归一
+
+**现象**：图谱里反复出现名为 `大肥鱼-官方` / `qq_official` / `unknown_selfid` / 一串 32 位哈希的人物节点（用户截图为证）。
+
+**根因（✅ 已定位）**：
+
+```python
+# core/processors/memory_processor_parse.py 原文
+identity_key = f"{platform}:{sender_id}"
+```
+
+- 群里发言时，bot 自己的 `sender_id` 是**真实账号哈希** `4BFCCA5091D54AE72297D5EC5062A477`；
+- **私聊**时 AstrBot 填的是 `bot:大肥鱼-官方`；
+- 两个字符串不同 → 同一个 bot 被建成两个 person 节点。
+- 另有一层：`graph_extractor.py` 会把纯 ASCII 的 `identity_key` **整体转小写**，所以 `node_key` 是小写、`metadata.sender_id` 保留大写，看着像两个不同 ID（**其实是同一个**）。
+
+**处置 A：已合并的历史节点（✅）**
+
+| 动作 | 结果 |
+|---|---|
+| 合并 `大肥鱼-官方`（id 1932）→ 主节点 260 | 迁边 20 条、重挂 entries 20 条、删 1932 |
+| 统一正文里 `qq_official` / `unknown_selfid` / 哈希 → `大肥鱼-小洛` | `documents.text` 9 篇、`key_facts` 9 篇、`memory_atoms` 6 条、fact 节点 4 个 |
+
+**处置 B：改上游代码归一（✅ 已上线，属"用户明确批准的例外"）**
+
+两处各加一个模块级常量和一行归一：
+
+| 文件 | 常量位置 | 归一位置 |
+|---|---|---|
+| `core/processors/memory_processor_parse.py` | L446 `_SELF_SENDER_ALIASES` | L458（`extract_participant_identities` 内） |
+| `core/tools/agentic_recall_common.py` | L77 同名常量 | L90（`derive_speaker_identity` 内） |
+
+```python
+_SELF_SENDER_ALIASES = {"bot:大肥鱼-官方": "4BFCCA5091D54AE72297D5EC5062A477"}
+sender_id = _SELF_SENDER_ALIASES.get(sender_id, sender_id)  # 自研补丁：私聊 bot 标识归一
+```
+
+**验证通过**（容器内构造消息实测）：
+
+- `bot:大肥鱼-官方` → `qq_official:4BFCCA5091D54AE72297D5EC5062A477` ✅
+- `bot:爱吃饭的大肥鱼`（耀白手搓的**另一只 bot**）→ 原样保留，**不被误伤** ✅
+
+> ⚠️ 补丁会被上游升级覆盖。升级后复查这两个文件是否仍有 `_SELF_SENDER_ALIASES`；
+> 丢失后需重打（`patch_self_id.py` 幂等，检测到常量已存在就跳过）。
+> 备份：`/AstrBot/data/backups/*.bak-selfid-20261119-100936`。
+
+**两个必须跳过、永不合并的 person 节点**：
+
+| 节点 | 原因 |
+|---|---|
+| id **1031 定时任务** | `identity_key = cron:astrbot`，是 cron 虚拟身份 |
+| id **97 爱吃饭的大肥鱼** | 耀白的另一只 bot，不是分身 |
+
+### 18.5 每周维护脚本（✅ 已上线，cron 周一 04:00）
+
+`/AstrBot/data/scripts/maintain_livingmemory.py`（源码同步在仓库根 `maintain_livingmemory.py`）
+
+**做两件事，都是幂等的**：
+
+1. **合并 bot 分身**：只认精确白名单（`qq_official:bot:大肥鱼-官方` / `qq_official:qq_official` / `qq_official:unknown_selfid` / `sender_id = bot:大肥鱼-官方`），**不按哈希判定**（见 18.6 的事故）；
+2. **重算 `mentioned_in` 权重**：按 18.3 的规则。
+
+**安全阀（务必保留）**：待合并节点 **> 3 个** 时直接拒绝执行并打印清单——正常状态下分身永远只有 0~1 个，超过就是判定出错了。
+
+**cron（宿主机）**：
+
+```
+0 4 * * 1 /usr/bin/docker exec astrbot python /AstrBot/data/scripts/maintain_livingmemory.py >> /opt/bot-stack/lm_maint.log 2>&1
+```
+
+与已有的 `20 4 * * * memory_maintenance.py` **不冲突**：那个管的是 `dafeiyu_daily_memory/memory.db`（events 分级清理），这个管 `livingmemory.db`。
+
+**实测（2026-11-19 10:13 幂等复跑）**：合并 0 个、扫描 1876 条、调整 5 条、person 48→48、悬空 0。
+
+### 18.6 ⚠️ 数据库备份与恢复的红线（**这一节是花钱买来的**）
+
+> 2026-11-19 上午，我在这一节的两条上都踩了，代价是一次数据库损坏 + 一次全量合并误伤。
+> **下面每一行都是"必须"，不是"建议"。**
+
+#### 红线 1：绝不在容器运行中 `cp` 覆盖 SQLite 文件
+
+**事故经过**：用 `cp 备份 → livingmemory.db` 并 `rm -f livingmemory.db-wal -shm` 的方式回滚，
+当时容器还在跑。结果插件仍持有旧句柄/页缓存，随即 `PRAGMA integrity_check` 爆出
+`Tree 33 page 9105: 2nd reference to page ...`、`Rowid ... out of order`、`freelist size` 不符——
+**数据库实质损坏，任何写入都报 `database disk image is malformed`**。
+
+**正确流程（照抄）**：
+
+```bash
+docker stop astrbot
+P=/opt/bot-stack/astrbot/data/plugin_data/astrbot_plugin_livingmemory
+cp "$P/livingmemory.db.bak-XXX" "$P/livingmemory.db"
+rm -f "$P/livingmemory.db-wal" "$P/livingmemory.db-shm"
+docker start astrbot
+# 起来后必须复核：integrity_check = ok 且 docs/atoms/nodes/edges 与备份一致
+```
+
+#### 红线 2：备份必须用 SQLite 的 `backup()` API，不能用文件复制
+
+WAL 模式下主文件与 `-wal` 是分离的，**直接复制主文件可能拿到缺事务、甚至页结构不一致的副本**——
+那样的"备份"在需要它的时候救不了命。
+
+```python
+src = sqlite3.connect(LM, timeout=30)
+dst = sqlite3.connect(bak)
+src.backup(dst)          # 一致性快照；不要用 shutil.copy2
+```
+
+#### 红线 3：判定"bot 分身"绝不能用 32 位哈希
+
+QQ 官方 bot 框架下，**群里每个真实用户的 `sender_id` 都是 32 位哈希**。
+我第一版脚本把哈希当成 bot 标记，一跑就把 **46 个真实群友并进主节点**（person 48 → 2，边 4323 → 2338）。
+靠脚本自己生成的备份当场回滚才恢复。
+
+→ 只用 18.5 里那份**精确白名单**，并保留 `> 3 就拒绝` 的安全阀。
+
+#### 恢复用备份清单（按时间倒序，只有 101046 是完好的）
+
+| 备份 | 完整性 | 数据 | 用途 |
+|---|---|---|---|
+| `livingmemory.db.bak-maint-20261119-101046` | **ok** | person 48 / 934 / 4323 | **当前恢复源**（11-19 合并事故前） |
+| `livingmemory.db.bak-maint-20261119-101133` | **损坏** | — | ⛔ 不可用（是损坏之后拷的） |
+| `livingmemory.db.bak-merge2-20261119-100120` | ok | person 49 / 935 | 合并「大肥鱼-官方」之前 |
+| `livingmemory.db.bak-edgeweight-20261119-095444` | 未复验 | — | 重算边权之前 |
+| `livingmemory.db.bak-rename-20261119-094451` | 未复验 | — | 改旧称呼之前 |
+
+> **拷完备份第一件事是验它**：`PRAGMA integrity_check` + 三个计数，别假设"拷了就是好的"。
+
+### 18.7 正文旧称呼清理（✅ 已完成）
+
+只改节点名不够——`documents.text`、`metadata.key_facts`、`memory_atoms.content`、fact 节点正文里都还写着旧称呼。
+
+| 位置 | 命中 |
+|---|---|
+| `documents.text` | 9 篇（id 7/20/24/29/45/61/63/66/73） |
+| `documents.metadata` 的 `key_facts` | 9 篇 |
+| `memory_atoms` | 6 条 |
+| graph fact 节点 | 4 个（id 102/126/167/241） |
+
+**FTS 要手工同步**：`livingmemory_memories_fts` 与 `memory_atoms_fts` 都是**普通 fts5、无触发器**，
+改正文必须 `DELETE + INSERT`；`livingmemory_graph_nodes_fts` 有 3 个触发器（监听 `canonical_value`），不用手工。
+
+> 复盘：这轮我把"这篇有没有变"的判断写错了（拿重新序列化后的 JSON 字符串比原串，永远不等），
+> 结果 159 篇被判为全变、全量重写并全部进索引，连带把 30 篇 archived 塞进检索。
+> 用 `fix_index_archived.py` 纠正后索引回到 135（= active）。
+> **教训**：判"是否变化"必须比对**具体字段**，不能比序列化后的整串。
+
+### 18.8 这一轮之后仍然存在的（❓ / 未做）
+
+| # | 项 | 状态 |
+|---|---|---|
+| 1 | 就近归属：问「我生日几号」可能召回别人的生日 | ❓ 未修：需在召回层加 person/sender 过滤，属上游核心逻辑，**尚未批准** |
+| 2 | atom 分类器把"无主语规则句"塞进 `unknown` | ❓ 未做：可加「含游戏/系统规则关键词 → factual」规则 |
+| 3 | 上游升级会覆盖身份归一补丁 | ❓ 需每次升级后复查（见 18.4） |
+| 4 | 1520 条 0.2 空白边 | ✅ 已定不删，靠每周重算维持 |
+| 5 | `graph_route_weight` 是否降到 0.15 以下 | 已为 0.15；再降会削弱图谱召回，暂不动 |
+| 6 | 「人物档案」「群友」这类泛 topic | 🟡 权重已压到 0.3，彻底解决要改抽取逻辑（第三层，未做） |
+
+---
+
 ## 变更记录
 
 - **2026-10-23**：初版。架构、访问方式、关键文件、已做改动、红线、常用命令。
@@ -1471,6 +1778,20 @@ python -m unittest discover -s tests -p "test_dafeiyu_style.py"
   6. **已实现 `astrbot_plugin_dafeiyu_style` v0.1.0（§17.18）**：新增 8 个文件 + 12 条单测（本机
      Python 3.11 全通过）；`inject_enabled` 默认关，先只学不注入；未在真实 AstrBot 运行时验证，
      未验证点与审查清单见 §17.18。
+- **2026-11-19（本版，新增 §18）**：
+  1. **图谱"连接度"语义纠正**：`mentioned_in` 的权重原本一律 1.0（度数 = 出勤次数），
+     按人名在 fact 正文中的位置重新分级 → 1876 条均值 1.0 → 0.30，其中 **1520 条（81%）为纯共现、降到 0.2**。
+  2. **bot 分身节点治理**：合并「大肥鱼-官方」（id 1932）到主节点 260；并在两处上游代码打身份归一补丁
+     （`_SELF_SENDER_ALIASES`），私聊 `bot:大肥鱼-官方` → 真实账号，**不再新建人物节点**。
+  3. **正文旧称呼清理**：`documents` / `key_facts` / `memory_atoms` / fact 节点里的
+     `qq_official`、`unknown_selfid`、32 位哈希统一为「大肥鱼-小洛」，FTS 手工同步。
+  4. **新增每周维护脚本** `maintain_livingmemory.py`（合并分身 + 重算边权，幂等 + 安全阀），
+     cron 周一 04:00，日志 `/opt/bot-stack/lm_maint.log`。
+  5. **新增 §18.6 数据库红线（事故复盘）**：绝不在容器运行中 `cp` 覆盖 SQLite；备份必须用
+     `sqlite3.backup()` API；判定 bot 分身绝不能用 32 位哈希。三条都是本轮真实踩过的坑，
+     其中两条造成过**数据库 pages 损坏（`database disk image is malformed`）**与
+     **46 个真实群友被误合并**，均已恢复。
+  6. 现状：documents 165 / atoms 474 / nodes 934 / edges 4323 / person 48 / 索引 135 / integrity ok。
 
 ## 2026-10-26 内置知识库内容更新
 
